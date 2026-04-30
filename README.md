@@ -84,7 +84,40 @@ $env:CONDA_OVERRIDE_CUDA='0'
 conda create -n shorthaul-agent-exp python=3.11 -y
 conda activate shorthaul-agent-exp
 python -m pip install -U pip
-python -m pip install -e ".[solver,llm,dev,experiment]"
+python -m pip install -e ".[solver,llm,api,dev,experiment]"
+```
+
+## API 服务
+
+安装 `api` extra 后可启动 FastAPI 服务：
+
+```powershell
+$env:PYTHONPATH="src"
+uvicorn shorthaul_agent.api:app --host 127.0.0.1 --port 8000
+```
+
+主要接口：
+
+- `GET /health`
+- `POST /schedule`：传入自然语言需求和结构化实例 JSON，返回 Agent 调度结果
+- `POST /experiments/d-problem`：触发 D 题真实数据实验
+
+## 质量检查
+
+本仓库已配置 GitHub Actions：`.github/workflows/ci.yml`。每次 push / pull request 会运行：
+
+- `python scripts/format_check.py`
+- `python -m compileall -q src`
+- `python scripts/smoke_test.py`
+- `pytest`
+
+本地可先运行：
+
+```powershell
+$env:PYTHONPATH="src"
+D:\miniconda3\python.exe scripts\format_check.py
+D:\miniconda3\python.exe -m compileall -q src tests scripts
+D:\miniconda3\python.exe scripts\smoke_test.py
 ```
 
 ## 项目结构

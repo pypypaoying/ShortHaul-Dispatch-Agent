@@ -255,3 +255,26 @@ D:\miniconda3\python.exe -m shorthaul_agent.cli run-experiment --data-dir D题 -
 与论文参考值仍有差距，主要原因是当前预测模型为统计基线，且 CP-SAT 目标函数仍偏向提升自有车承运任务数。下一批实验应校准多目标权重、外部成本惩罚和容器任务生成逻辑，使问题三体现更明显的成本下降。
 
 问题 4 当前结论与论文方向一致：成本在固定方案下相对稳定，但服务水平对需求偏高和时间延迟敏感。当前最差场景为到达时间整体延迟 90 分钟，按时装载率下降至约 68.2%，滞留量上升至 160525；总量增加 30% 时按时装载率约 84.3%，滞留量 103278。时间提前场景对服务指标影响较小，说明静态调度方案对“晚到货”的脆弱性显著高于“早到货”。
+
+## 12. 服务化接口
+
+项目新增可选 FastAPI 服务层，用于把调度 Agent 暴露为 HTTP 服务。安装 `api` extra 后运行：
+
+```powershell
+uvicorn shorthaul_agent.api:app --host 127.0.0.1 --port 8000
+```
+
+接口包括健康检查、单次调度和 D 题实验触发。服务层不改变优化模型，只作为 CLI 之外的集成入口，便于后续接入前端、自动评测平台或调度系统。
+
+## 13. 持续集成
+
+已新增 GitHub Actions 工作流 `.github/workflows/ci.yml`。CI 在 Windows 环境下安装项目依赖，执行格式检查、包编译、烟测和单元测试。格式检查由 `scripts/format_check.py` 完成，只检查 Git 追踪文件，避免本地数据集、输出表和缓存影响结果。
+
+本地已完成以下验证：
+
+- `D:\miniconda3\python.exe scripts\format_check.py`
+- `D:\miniconda3\python.exe -m compileall -q src tests scripts`
+- `D:\miniconda3\python.exe scripts\smoke_test.py`
+- 直接调用 `tests` 中的测试函数
+
+当前 base 环境没有安装 pytest，因此本地未直接执行 `pytest` 命令；GitHub Actions 会在 CI 中安装 `.[dev]` 后运行 pytest。

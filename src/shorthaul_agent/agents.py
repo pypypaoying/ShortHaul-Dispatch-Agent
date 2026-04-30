@@ -76,13 +76,13 @@ class ExplanationAgent:
 
         focus = set(result.requirement.route_focus)
         shown = 0
-        for assignment in sorted(solution.assignments, key=lambda item: item.start_minute):
+        for assignment in sorted(solution.assignments, key=lambda item: item.dispatch_minute or item.start_minute):
             if focus and not (focus & set(assignment.route_ids)):
                 continue
             container = "是" if assignment.use_container else "否"
             carrier = "外部" if assignment.is_external else "自有"
             lines.append(
-                f"- {format_minutes(assignment.start_minute)} {assignment.task_id} "
+                f"- {format_minutes(assignment.dispatch_minute or assignment.start_minute)} {assignment.task_id} "
                 f"({','.join(assignment.route_ids)}) -> {assignment.vehicle_id} [{carrier}] "
                 f"货量 {assignment.volume}, 容器 {container}"
             )

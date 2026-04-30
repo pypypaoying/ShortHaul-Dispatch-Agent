@@ -12,8 +12,9 @@ from shorthaul_agent.experiment import (  # noqa: E402
     load_experiment_config,
     normalize_route_code,
     parse_simple_yaml,
+    polish_external_assignments,
 )
-from shorthaul_agent.models import DispatchTask, ProblemConfig, ScheduleSolution  # noqa: E402
+from shorthaul_agent.models import Assignment, DispatchTask, Fleet, Instance, ProblemConfig, ScheduleSolution  # noqa: E402
 
 
 def test_normalize_route_code_standardizes_hyphen_spacing():
@@ -90,3 +91,117 @@ def test_reproduction_status_marks_engineering_baseline():
     )
     status = build_reproduction_status(solution, solution)
     assert status["level"] == "engineering_baseline_not_exact_reproduction"
+
+
+def test_external_repair_converts_feasible_gap_to_owned_vehicle():
+    instance = Instance(
+        id="unit",
+        date="2024-12-16",
+        routes=[],
+        fleets=[Fleet(id="fleet", vehicle_count=1, fixed_cost=0, variable_cost_per_trip=10)],
+        forecast=[],
+    )
+    owned_task = DispatchTask(
+        id="owned",
+        route_ids=["r1"],
+        origin="o",
+        destinations=["d1"],
+        wave="0600",
+        volume=1000,
+        earliest_minute=0,
+        latest_minute=0,
+        travel_minutes=5,
+        fleet_id="fleet",
+        variable_cost=10,
+        external_cost=100,
+        source="full_load",
+    )
+    external_task = DispatchTask(
+        id="external",
+        route_ids=["r2"],
+        origin="o",
+        destinations=["d2"],
+        wave="0600",
+        volume=1000,
+        earliest_minute=200,
+        latest_minute=300,
+        travel_minutes=5,
+        fleet_id="fleet",
+        variable_cost=10,
+        external_cost=100,
+        source="full_load",
+    )
+    solution = ScheduleSolution(
+        status="FEASIBLE",
+        objective=0,
+        assignments=[
+            Assignment("owned", ["r1"], "Own_fleet_1", "fleet", 0, 100, 1000, False, False),
+            Assignment("external", ["r2"], "External_external", "fleet", 200, 300, 1000, False, True),
+        ],
+        kpis={"total_cost": 120.0},
+        solver="unit",
+    )
+
+    repaired = polish_external_assignments(instance, [owned_task, external_task], solution, ProblemConfig())
+
+    assert repaired.kpis["external_task_count"] == 0
+    assert repaired.kpis["total_cost"] < solution.kpis["total_cost"]
+    assert repaired.solver == "unit+external-repair"
+
+
+def test_external_repair_swaps_higher_saving_external_task():
+    instance = Instance(
+        id="unit",
+        date="2024-12-16",
+        routes=[],
+        fleets=[Fleet(id="fleet", vehicle_count=1, fixed_cost=0, variable_cost_per_trip=10)],
+        forecast=[],
+    )
+    low_saving = DispatchTask(
+        id="low",
+        route_ids=["r1"],
+        origin="o",
+        destinations=["d1"],
+        wave="0600",
+        volume=1000,
+        earliest_minute=0,
+        latest_minute=0,
+        travel_minutes=5,
+        fleet_id="fleet",
+        variable_cost=10,
+        external_cost=30,
+        source="full_load",
+    )
+    high_saving = DispatchTask(
+        id="high",
+        route_ids=["r2"],
+        origin="o",
+        destinations=["d2"],
+        wave="0600",
+        volume=1000,
+        earliest_minute=0,
+        latest_minute=0,
+        travel_minutes=5,
+        fleet_id="fleet",
+        variable_cost=10,
+        external_cost=200,
+        source="full_load",
+    )
+    solution = ScheduleSolution(
+        status="FEASIBLE",
+        objective=0,
+        assignments=[
+            Assignment("low", ["r1"], "Own_fleet_1", "fleet", 0, 100, 1000, False, False),
+            Assignment("high", ["r2"], "External_high", "fleet", 0, 100, 1000, False, True),
+        ],
+        kpis={"total_cost": 220.0},
+        solver="unit",
+    )
+
+    repaired = polish_external_assignments(instance, [low_saving, high_saving], solution, ProblemConfig())
+
+    owned_ids = {assignment.task_id for assignment in repaired.assignments if not assignment.is_external}
+    external_ids = {assignment.task_id for assignment in repaired.assignments if assignment.is_external}
+    assert "high" in owned_ids
+    assert "low" in external_ids
+    assert repaired.kpis["total_cost"] < solution.kpis["total_cost"]

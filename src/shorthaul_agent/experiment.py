@@ -571,11 +571,11 @@ def solve_with_fallback(instance: Instance, tasks: list, config: ProblemConfig) 
     if config.prefer_cpsat and CpSatScheduler.available():
         solution = solve_cpsat_portfolio(instance, tasks, config)
         if solution.assignments:
-            return solution
+            return polish_external_assignments(instance, tasks, solution, config)
     solution = HeuristicScheduler().solve(instance, tasks, config)
     if config.prefer_cpsat:
         solution.warnings.append("CP-SAT unavailable or did not return assignments; used heuristic fallback.")
-    return solution
+    return polish_external_assignments(instance, tasks, solution, config)
 
 
 def solve_cpsat_portfolio(instance: Instance, tasks: list, config: ProblemConfig) -> ScheduleSolution:
@@ -621,6 +621,182 @@ def solve_cpsat_portfolio(instance: Instance, tasks: list, config: ProblemConfig
     best.solver = "ortools-cpsat-portfolio"
     best.warnings.append(f"CP-SAT portfolio evaluated seeds with {per_seed_limit:.1f}s each: {diagnostics}")
     return best
+
+
+def polish_external_assignments(instance: Instance, tasks: list, solution: ScheduleSolution, config: ProblemConfig) -> ScheduleSolution:
+    """Greedily replace external tasks with feasible self-owned vehicle gaps.
+
+    CP-SAT often returns good feasible schedules before proving optimality. This
+    deterministic repair keeps all task windows and no-overlap constraints, then
+    accepts only cost-reducing external-to-owned replacements.
+    """
+    if not solution.assignments:
+        return solution
+
+    tasks_by_id = {task.id: task for task in tasks}
+    fleets = {fleet.id: fleet for fleet in instance.fleets}
+    vehicle_to_fleet = {
+        f"Own_{fleet.id}_{idx}": fleet.id
+        for fleet in instance.fleets
+        for idx in range(1, fleet.vehicle_count + 1)
+    }
+    schedules: Dict[str, list[Assignment]] = {vehicle_id: [] for vehicle_id in vehicle_to_fleet}
+    external_assignments: list[Assignment] = []
+
+    for assignment in solution.assignments:
+        if assignment.is_external:
+            external_assignments.append(assignment)
+        else:
+            schedules.setdefault(assignment.vehicle_id, []).append(assignment)
+
+    def saving(assignment: Assignment) -> float:
+        task = tasks_by_id[assignment.task_id]
+        fleet = fleets[task.fleet_id]
+        return task.external_cost - (task.variable_cost + fleet.variable_cost_per_trip)
+
+    converted: list[Assignment] = []
+    still_external: list[Assignment] = []
+    for assignment in sorted(external_assignments, key=saving, reverse=True):
+        task = tasks_by_id[assignment.task_id]
+        fleet = fleets[task.fleet_id]
+        own_trip_cost = task.variable_cost + fleet.variable_cost_per_trip
+        if task.external_cost <= own_trip_cost:
+            still_external.append(assignment)
+            continue
+        best_vehicle = None
+        best_start = None
+        best_end = None
+        use_container = should_use_container_for_repair(task, fleet, config)
+        duration = repaired_task_duration(task, fleet, use_container)
+        for vehicle_id, fleet_id in vehicle_to_fleet.items():
+            if fleet_id != task.fleet_id:
+                continue
+            candidate_start = earliest_gap_start(schedules[vehicle_id], task.earliest_minute, task.latest_minute, duration)
+            if candidate_start is None:
+                continue
+            candidate_end = candidate_start + duration
+            if best_end is None or (candidate_end, vehicle_id) < (best_end, best_vehicle):
+                best_vehicle = vehicle_id
+                best_start = candidate_start
+                best_end = candidate_end
+        if best_vehicle is None or best_start is None or best_end is None:
+            still_external.append(assignment)
+            continue
+        repaired = Assignment(
+            task_id=assignment.task_id,
+            route_ids=list(assignment.route_ids),
+            vehicle_id=best_vehicle,
+            fleet_id=task.fleet_id,
+            start_minute=best_start,
+            end_minute=best_end,
+            volume=assignment.volume,
+            use_container=use_container,
+            is_external=False,
+        )
+        schedules[best_vehicle].append(repaired)
+        converted.append(repaired)
+
+    swapped_in: list[Assignment] = []
+    swapped_out: list[Assignment] = []
+    remaining_external: list[Assignment] = []
+    for assignment in sorted(still_external, key=saving, reverse=True):
+        task = tasks_by_id[assignment.task_id]
+        fleet = fleets[task.fleet_id]
+        incoming_saving = saving(assignment)
+        use_container = should_use_container_for_repair(task, fleet, config)
+        duration = repaired_task_duration(task, fleet, use_container)
+        best_swap = None
+        for vehicle_id, fleet_id in vehicle_to_fleet.items():
+            if fleet_id != task.fleet_id:
+                continue
+            for owned in list(schedules[vehicle_id]):
+                outgoing_saving = saving(owned)
+                if incoming_saving <= outgoing_saving:
+                    continue
+                schedule_without_owned = [item for item in schedules[vehicle_id] if item.task_id != owned.task_id]
+                candidate_start = earliest_gap_start(schedule_without_owned, task.earliest_minute, task.latest_minute, duration)
+                if candidate_start is None:
+                    continue
+                candidate_end = candidate_start + duration
+                improvement = incoming_saving - outgoing_saving
+                ranking = (-improvement, candidate_end, vehicle_id, owned.task_id)
+                if best_swap is None or ranking < best_swap[0]:
+                    best_swap = (ranking, vehicle_id, owned, candidate_start, candidate_end)
+        if best_swap is None:
+            remaining_external.append(assignment)
+            continue
+        _, vehicle_id, outgoing_owned, best_start, best_end = best_swap
+        schedules[vehicle_id].remove(outgoing_owned)
+        repaired = Assignment(
+            task_id=assignment.task_id,
+            route_ids=list(assignment.route_ids),
+            vehicle_id=vehicle_id,
+            fleet_id=task.fleet_id,
+            start_minute=best_start,
+            end_minute=best_end,
+            volume=assignment.volume,
+            use_container=use_container,
+            is_external=False,
+        )
+        externalized = Assignment(
+            task_id=outgoing_owned.task_id,
+            route_ids=list(outgoing_owned.route_ids),
+            vehicle_id=f"External_{outgoing_owned.task_id}",
+            fleet_id=outgoing_owned.fleet_id,
+            start_minute=outgoing_owned.start_minute,
+            end_minute=outgoing_owned.end_minute,
+            volume=outgoing_owned.volume,
+            use_container=False,
+            is_external=True,
+        )
+        schedules[vehicle_id].append(repaired)
+        swapped_in.append(repaired)
+        swapped_out.append(externalized)
+
+    if not converted and not swapped_in:
+        return solution
+
+    repaired_assignments = [item for schedule in schedules.values() for item in schedule] + remaining_external + swapped_out
+    repaired_kpis = calculate_kpis(instance, tasks, repaired_assignments, config)
+    if repaired_kpis.get("total_cost", float("inf")) >= solution.kpis.get("total_cost", float("inf")):
+        return solution
+    repaired = ScheduleSolution(
+        status=solution.status,
+        objective=solution.objective,
+        assignments=repaired_assignments,
+        kpis=repaired_kpis,
+        warnings=list(solution.warnings)
+        + [
+            f"External repair converted {len(converted)} tasks and swapped {len(swapped_in)} high-saving external tasks into self-owned vehicles."
+        ],
+        solver=f"{solution.solver}+external-repair",
+    )
+    return repaired
+
+
+def earliest_gap_start(assignments: list[Assignment], earliest: int, latest: int, duration: int) -> Optional[int]:
+    candidate = earliest
+    for current in sorted(assignments, key=lambda item: item.start_minute):
+        if candidate + duration <= current.start_minute:
+            return candidate if candidate <= latest else None
+        candidate = max(candidate, current.end_minute)
+    return candidate if candidate <= latest else None
+
+
+def should_use_container_for_repair(task, fleet: Fleet, config: ProblemConfig) -> bool:
+    return (
+        config.allow_container
+        and task.volume <= config.container_capacity
+        and fleet.container_load_minutes + fleet.container_unload_minutes < fleet.normal_load_minutes + fleet.normal_unload_minutes
+    )
+
+
+def repaired_task_duration(task, fleet: Fleet, use_container: bool) -> int:
+    if use_container:
+        handling = fleet.container_load_minutes + fleet.container_unload_minutes
+    else:
+        handling = fleet.normal_load_minutes + fleet.normal_unload_minutes
+    return handling + 2 * task.travel_minutes
 
 
 def convert_problem2_to_container_baseline(
@@ -694,6 +870,10 @@ def count_container_tasks(solution: ScheduleSolution) -> int:
     return sum(1 for assignment in solution.assignments if assignment.use_container)
 
 
+def assignment_dispatch_minute(assignment: Assignment) -> int:
+    return int(assignment.dispatch_minute if assignment.dispatch_minute is not None else assignment.start_minute)
+
+
 def assignments_to_result_table(
     solution: ScheduleSolution,
     target_date: pd.Timestamp,
@@ -701,8 +881,8 @@ def assignments_to_result_table(
     include_container: bool,
 ) -> pd.DataFrame:
     records = []
-    for assignment in sorted(solution.assignments, key=lambda item: (item.start_minute, item.task_id)):
-        dispatch_dt = base_date.to_pydatetime() + timedelta(minutes=int(assignment.start_minute))
+    for assignment in sorted(solution.assignments, key=lambda item: (assignment_dispatch_minute(item), item.task_id)):
+        dispatch_dt = base_date.to_pydatetime() + timedelta(minutes=assignment_dispatch_minute(assignment))
         record = {
             "线路编码": ";".join(assignment.route_ids),
             "日期": dispatch_dt.strftime("%Y-%m-%d"),
@@ -1090,8 +1270,11 @@ def audit_solution(solution: ScheduleSolution, tasks: list, config: ProblemConfi
         if task is None:
             violations.append(f"{assignment.task_id}: assignment references unknown task")
             continue
-        if assignment.start_minute > task.latest_minute:
+        dispatch_minute = assignment_dispatch_minute(assignment)
+        if dispatch_minute > task.latest_minute:
             violations.append(f"{assignment.task_id}: starts after latest dispatch")
+        if dispatch_minute < task.earliest_minute:
+            violations.append(f"{assignment.task_id}: dispatches before enough volume is available")
         if assignment.volume > config.container_capacity and assignment.use_container:
             violations.append(f"{assignment.task_id}: container task exceeds container capacity")
         if assignment.use_container and assignment.is_external:
@@ -1212,10 +1395,11 @@ def simulate_fixed_schedule(
         capacity = config.container_capacity if assignment.use_container else config.vehicle_capacity
         remaining_capacity = capacity
         assignment_loaded = 0
+        dispatch_minute = assignment_dispatch_minute(assignment)
         for route_id in assignment.route_ids:
             buckets = arrivals.get(route_id, [])
             for bucket in buckets:
-                if bucket[0] > assignment.start_minute or remaining_capacity <= 0:
+                if bucket[0] > dispatch_minute or remaining_capacity <= 0:
                     break
                 take = min(bucket[1], remaining_capacity)
                 bucket[1] -= take

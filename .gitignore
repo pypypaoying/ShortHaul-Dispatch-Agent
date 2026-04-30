@@ -15,5 +15,6 @@ outputs/
 outputs_heuristic/
 outputs_baseline_comparison/
 outputs_performance_stage/
+outputs_performance_stage_loadstart/
 .worktrees/
 .env

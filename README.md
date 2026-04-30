@@ -226,18 +226,18 @@ The comparison answers whether the new multi-agent architecture improves the pro
 
 # Performance Improvement Stage
 
-The performance configuration keeps the statistical forecast and verified CP-SAT model, but upgrades the solver call to a CP-SAT portfolio. It runs seeds `[0, 7, 19]` with the full configured time limit and selects the feasible solution with the lowest measured total cost.
+The performance configuration keeps the statistical forecast and verified CP-SAT model, but upgrades the solver call to a CP-SAT portfolio plus deterministic external-carrier repair. It runs seeds `[0, 7, 19]` with the full configured time limit, selects the feasible solution with the lowest measured total cost, then swaps high-saving external tasks into feasible self-owned vehicle slots when doing so reduces true cost.
 
 ```powershell
 $env:PYTHONPATH="src"
 D:\miniconda3\python.exe -m shorthaul_agent.cli run-experiment --config experiments/d_problem_performance.yaml --data-dir D_PROBLEM_DATA --output-dir outputs_performance_stage
 ```
 
-Latest validated performance run:
-- Problem 2 total cost: `68518`, own-vehicle turnover: `3.1727`, external tasks: `227`
-- Problem 3 total cost: `68518`, own-vehicle turnover: `3.1727`, external tasks: `227`
+Latest validated comparison run:
+- Problem 2 total cost: `67982`, own-vehicle turnover: `3.1727`, external tasks: `227`
+- Problem 3 total cost: `67982`, own-vehicle turnover: `3.1727`, external tasks: `227`
 - Legacy pipeline comparison cost: `71806`
-- Improvement vs legacy: `-3288` cost for both problem 2 and problem 3
+- Improvement vs legacy: `-3824` cost for both problem 2 and problem 3
 
 To refresh the full comparison table with the performance solver:
 

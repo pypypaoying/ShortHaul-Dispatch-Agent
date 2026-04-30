@@ -189,6 +189,7 @@ class Assignment:
     volume: int
     use_container: bool
     is_external: bool
+    dispatch_minute: Optional[int] = None
 
 
 @dataclass

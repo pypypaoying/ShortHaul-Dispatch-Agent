@@ -5,7 +5,7 @@ target_date: 2024-12-16
 base_date: 2024-12-15
 forecast_model: statistical_baseline
 task_generation_strategy: full_load_plus_tail_set_cover
-solver_strategy: cpsat_portfolio_with_non_regression_baseline
+solver_strategy: cpsat_portfolio_with_external_repair_and_non_regression_baseline
 prefer_cpsat: true
 solver_time_limit_seconds: 20
 cpsat_search_seeds: [0, 7, 19]

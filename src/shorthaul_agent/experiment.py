@@ -13,7 +13,8 @@ from typing import Any, Dict, Iterable, Optional, Tuple
 import numpy as np
 import pandas as pd
 
-from shorthaul_agent.models import Fleet, ForecastBucket, Instance, ProblemConfig, Route, ScheduleSolution
+from shorthaul_agent.models import Assignment, Fleet, ForecastBucket, Instance, ProblemConfig, Route, ScheduleSolution
+from shorthaul_agent.solvers.heuristic import calculate_kpis
 from shorthaul_agent.solvers import CpSatScheduler, HeuristicScheduler, generate_dispatch_tasks
 from shorthaul_agent.time_utils import format_minutes
 
@@ -77,6 +78,8 @@ def run_experiment(data_dir: Path, output_dir: Path, prefer_cpsat: bool = True) 
     config_p3 = ProblemConfig(allow_container=True, **common_config)
     tasks_p3 = generate_dispatch_tasks(instance_no_container, config_p3)
     solution_p3 = solve_with_fallback(instance_no_container, tasks_p3, config_p3)
+    baseline_p3 = convert_problem2_to_container_baseline(solution_p2, tasks_p3, instance_no_container, config_p3)
+    solution_p3 = choose_lower_cost_solution(solution_p3, baseline_p3)
     result4 = assignments_to_result_table(solution_p3, target_date, base_date, include_container=True)
     sensitivity = run_sensitivity_analysis(result2, solution_p3, instance_no_container, config_p3, base_date)
 
@@ -86,6 +89,7 @@ def run_experiment(data_dir: Path, output_dir: Path, prefer_cpsat: bool = True) 
     result4.to_excel(output_dir / "result_table_4.xlsx", index=False)
     sensitivity.to_csv(output_dir / "sensitivity_analysis.csv", index=False, encoding="utf-8-sig")
     sensitivity.to_excel(output_dir / "sensitivity_analysis.xlsx", index=False)
+    visual_outputs = write_visual_artifacts(output_dir, solution_p2, solution_p3, sensitivity, result1, result3, result4)
 
     summary = build_summary(
         dataset=dataset,
@@ -98,6 +102,7 @@ def run_experiment(data_dir: Path, output_dir: Path, prefer_cpsat: bool = True) 
         solution_p2=solution_p2,
         solution_p3=solution_p3,
         sensitivity=sensitivity,
+        visual_outputs=visual_outputs,
     )
     write_json(output_dir / "experiment_summary.json", summary)
     (output_dir / "experiment_report.md").write_text(render_report(summary), encoding="utf-8")
@@ -287,6 +292,77 @@ def solve_with_fallback(instance: Instance, tasks: list, config: ProblemConfig) 
     return solution
 
 
+def convert_problem2_to_container_baseline(
+    solution: ScheduleSolution,
+    tasks: list,
+    instance: Instance,
+    config: ProblemConfig,
+) -> ScheduleSolution:
+    """Use the problem-2 schedule as a feasible problem-3 baseline.
+
+    Container use is optional. Any normal schedule remains feasible in problem 3;
+    for self-owned tasks not exceeding container capacity, switching to a
+    container only shortens the vehicle occupation interval.
+    """
+    task_by_id = {task.id: task for task in tasks}
+    fleet_by_id = {fleet.id: fleet for fleet in instance.fleets}
+    assignments = []
+    for assignment in solution.assignments:
+        task = task_by_id.get(assignment.task_id)
+        fleet = fleet_by_id.get(assignment.fleet_id)
+        use_container = (
+            config.allow_container
+            and not assignment.is_external
+            and task is not None
+            and fleet is not None
+            and assignment.volume <= config.container_capacity
+        )
+        if task is not None and fleet is not None:
+            if use_container:
+                duration = fleet.container_load_minutes + fleet.container_unload_minutes + 2 * task.travel_minutes
+            else:
+                duration = fleet.normal_load_minutes + fleet.normal_unload_minutes + 2 * task.travel_minutes
+            end_minute = assignment.start_minute + duration
+        else:
+            end_minute = assignment.end_minute
+        assignments.append(
+            Assignment(
+                task_id=assignment.task_id,
+                route_ids=list(assignment.route_ids),
+                vehicle_id=assignment.vehicle_id,
+                fleet_id=assignment.fleet_id,
+                start_minute=assignment.start_minute,
+                end_minute=end_minute,
+                volume=assignment.volume,
+                use_container=use_container,
+                is_external=assignment.is_external,
+            )
+        )
+    kpis = calculate_kpis(instance, tasks, assignments, config)
+    return ScheduleSolution(
+        status="FEASIBLE_BASELINE",
+        objective=solution.objective,
+        assignments=assignments,
+        kpis=kpis,
+        warnings=["Problem 3 used non-regression baseline derived from the problem-2 schedule."],
+        solver="problem2-baseline-with-containers",
+    )
+
+
+def choose_lower_cost_solution(candidate: ScheduleSolution, baseline: ScheduleSolution) -> ScheduleSolution:
+    candidate_cost = float(candidate.kpis.get("total_cost", float("inf"))) if candidate.kpis else float("inf")
+    baseline_cost = float(baseline.kpis.get("total_cost", float("inf"))) if baseline.kpis else float("inf")
+    if baseline_cost < candidate_cost:
+        return baseline
+    if baseline_cost == candidate_cost and count_container_tasks(baseline) > count_container_tasks(candidate):
+        return baseline
+    return candidate
+
+
+def count_container_tasks(solution: ScheduleSolution) -> int:
+    return sum(1 for assignment in solution.assignments if assignment.use_container)
+
+
 def assignments_to_result_table(
     solution: ScheduleSolution,
     target_date: pd.Timestamp,
@@ -323,6 +399,7 @@ def build_summary(
     solution_p2: ScheduleSolution,
     solution_p3: ScheduleSolution,
     sensitivity: pd.DataFrame,
+    visual_outputs: list,
 ) -> Dict[str, Any]:
     focus = {}
     for route in FOCUS_ROUTES:
@@ -349,6 +426,7 @@ def build_summary(
             "result_table_3_rows": int(len(result3)),
             "result_table_4_rows": int(len(result4)),
             "sensitivity_rows": int(len(sensitivity)),
+            "visual_outputs": visual_outputs,
         },
         "problem2": {
             "task_count": tasks_p2,
@@ -357,6 +435,7 @@ def build_summary(
             "kpis": solution_p2.kpis,
             "paper_baseline": PAPER_BASELINES["problem2"],
             "warnings": solution_p2.warnings,
+            "container_task_count": count_container_tasks(solution_p2),
         },
         "problem3": {
             "task_count": tasks_p3,
@@ -365,6 +444,7 @@ def build_summary(
             "kpis": solution_p3.kpis,
             "paper_baseline": PAPER_BASELINES["problem3"],
             "warnings": solution_p3.warnings,
+            "container_task_count": count_container_tasks(solution_p3),
         },
         "focus_routes": focus,
         "sensitivity": summarize_sensitivity(sensitivity),
@@ -390,6 +470,7 @@ def render_report(summary: Dict[str, Any]) -> str:
         f"- 结果表 3：{summary['outputs']['result_table_3_rows']} 行",
         f"- 结果表 4：{summary['outputs']['result_table_4_rows']} 行",
         f"- 敏感性分析：{summary['outputs']['sensitivity_rows']} 个场景",
+        f"- 可视化/解释文件：{len(summary['outputs']['visual_outputs'])} 个",
         "",
         "## 问题 2 KPI",
         _kpi_line(p2),
@@ -405,6 +486,11 @@ def render_report(summary: Dict[str, Any]) -> str:
             f"问题2调度行 {item['problem2_rows']}，问题3调度行 {item['problem3_rows']}"
         )
     lines.append("")
+    if summary["outputs"]["visual_outputs"]:
+        lines.append("## 可视化与解释文件")
+        for output in summary["outputs"]["visual_outputs"]:
+            lines.append(f"- `{output}`")
+        lines.append("")
     lines.append("## 问题 4 敏感性分析")
     sensitivity = summary["sensitivity"]
     lines.append(
@@ -423,6 +509,114 @@ def render_report(summary: Dict[str, Any]) -> str:
     lines.append("- 本批实验使用可解释统计预测基线，非 LSTM-MLP。")
     lines.append("- 若求解器显示 heuristic，表示 CP-SAT 未可用或未返回可行分配，已自动启发式兜底。")
     return "\n".join(lines)
+
+
+def write_visual_artifacts(
+    output_dir: Path,
+    solution_p2: ScheduleSolution,
+    solution_p3: ScheduleSolution,
+    sensitivity: pd.DataFrame,
+    result1: pd.DataFrame,
+    result3: pd.DataFrame,
+    result4: pd.DataFrame,
+) -> list:
+    outputs = []
+    focus_report = output_dir / "focus_routes_report.md"
+    focus_report.write_text(render_focus_routes_report(result1, result3, result4), encoding="utf-8")
+    outputs.append(focus_report.name)
+
+    try:
+        import matplotlib
+
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+    except Exception:
+        return outputs
+
+    gantt_p2 = output_dir / "gantt_problem2.png"
+    gantt_p3 = output_dir / "gantt_problem3.png"
+    sensitivity_png = output_dir / "sensitivity_on_time.png"
+    plot_gantt(solution_p2, gantt_p2, "Problem 2 Dispatch Gantt")
+    plot_gantt(solution_p3, gantt_p3, "Problem 3 Dispatch Gantt")
+    plot_sensitivity(sensitivity, sensitivity_png)
+    outputs.extend([gantt_p2.name, gantt_p3.name, sensitivity_png.name])
+    plt.close("all")
+    return outputs
+
+
+def render_focus_routes_report(result1: pd.DataFrame, result3: pd.DataFrame, result4: pd.DataFrame) -> str:
+    lines = ["# 重点线路预测与调度解释", ""]
+    for route in FOCUS_ROUTES:
+        daily_volume = int(result1.loc[result1["线路编码"] == route, "货量"].sum())
+        lines.append(f"## {route}")
+        lines.append(f"- 日度预测货量：{daily_volume}")
+        lines.append("- 问题 2 调度：")
+        focus_p2 = result3[result3["线路编码"].astype(str).str.contains(re.escape(route), regex=True)]
+        lines.extend(format_records_for_markdown(focus_p2, ["线路编码", "日期", "预计发运时间", "发运车辆"]))
+        lines.append("- 问题 3 调度：")
+        focus_p3 = result4[result4["线路编码"].astype(str).str.contains(re.escape(route), regex=True)]
+        lines.extend(format_records_for_markdown(focus_p3, ["线路编码", "日期", "预计发运时间", "是否使用容器", "发运车辆"]))
+        lines.append("")
+    return "\n".join(lines)
+
+
+def format_records_for_markdown(frame: pd.DataFrame, columns: list) -> list:
+    if frame.empty:
+        return ["  - 无调度记录"]
+    lines = []
+    for row in frame[columns].head(20).itertuples(index=False):
+        values = [str(value) for value in row]
+        lines.append("  - " + " | ".join(values))
+    return lines
+
+
+def plot_gantt(solution: ScheduleSolution, path: Path, title: str) -> None:
+    import matplotlib.pyplot as plt
+
+    assignments = [item for item in solution.assignments if not item.is_external]
+    assignments = sorted(assignments, key=lambda item: (item.vehicle_id, item.start_minute))
+    vehicle_ids = sorted({item.vehicle_id for item in assignments})[:40]
+    y_map = {vehicle_id: idx for idx, vehicle_id in enumerate(vehicle_ids)}
+
+    fig_height = max(6, len(vehicle_ids) * 0.22)
+    fig, ax = plt.subplots(figsize=(14, fig_height))
+    for assignment in assignments:
+        if assignment.vehicle_id not in y_map:
+            continue
+        y = y_map[assignment.vehicle_id]
+        color = "#2E86AB" if not assignment.use_container else "#2A9D8F"
+        ax.barh(y, max(assignment.end_minute - assignment.start_minute, 1), left=assignment.start_minute, height=0.8, color=color)
+    ax.set_yticks(list(y_map.values()))
+    ax.set_yticklabels([ascii_vehicle_label(vehicle_id) for vehicle_id in vehicle_ids], fontsize=7)
+    ax.set_xlabel("Minutes since 2024-12-15 00:00")
+    ax.set_title(title)
+    ax.grid(axis="x", alpha=0.25)
+    fig.tight_layout()
+    fig.savefig(path, dpi=160)
+    plt.close(fig)
+
+
+def ascii_vehicle_label(vehicle_id: str) -> str:
+    return vehicle_id.replace("车队", "Fleet")
+
+
+def plot_sensitivity(sensitivity: pd.DataFrame, path: Path) -> None:
+    import matplotlib.pyplot as plt
+
+    labels = [f"{row.scenario_type}\n{row.parameter}" for row in sensitivity.itertuples(index=False)]
+    fig, ax1 = plt.subplots(figsize=(12, 6))
+    ax1.plot(labels, sensitivity["on_time_rate"], marker="o", color="#1D4ED8", label="On-time load rate")
+    ax1.set_ylabel("On-time load rate")
+    ax1.set_ylim(0, 1.05)
+    ax1.tick_params(axis="x", rotation=35)
+    ax2 = ax1.twinx()
+    ax2.bar(labels, sensitivity["stranded_volume"], alpha=0.25, color="#DC2626", label="Stranded volume")
+    ax2.set_ylabel("Stranded volume")
+    ax1.set_title("Sensitivity: service level and stranded volume")
+    ax1.grid(axis="y", alpha=0.25)
+    fig.tight_layout()
+    fig.savefig(path, dpi=160)
+    plt.close(fig)
 
 
 def run_sensitivity_analysis(
@@ -551,7 +745,8 @@ def _kpi_line(problem: Dict[str, Any]) -> str:
         f"总成本：{kpis.get('total_cost', 0):.0f}（论文参考 {baseline['total_cost']:.0f}），"
         f"自有车周转率：{kpis.get('own_vehicle_turnover', 0):.2f}（论文参考 {baseline['own_vehicle_turnover']:.2f}），"
         f"车辆均包裹：{kpis.get('avg_packages_per_vehicle', 0):.2f}，"
-        f"外部承运：{kpis.get('external_task_count', 0):.0f}"
+        f"外部承运：{kpis.get('external_task_count', 0):.0f}，"
+        f"容器任务：{problem.get('container_task_count', 0)}"
     )
 
 

@@ -119,17 +119,20 @@ class CpSatScheduler:
             cost_terms.append(task.external_cost * external_vars[task_idx])
 
         weights = config.objective_weights
-        cost_weight = int(weights.cost * 100)
-        turnover_weight = int(weights.turnover * 100)
-        fill_weight = int(weights.fill_rate * 100)
+        # Keep objective terms on comparable scales. Costs are already in yuan;
+        # task counts are small, and unused capacity is in parcels.
+        cost_weight = max(1, int(weights.cost * 100))
+        turnover_weight = max(0, int(weights.turnover * 10000))
+        fill_weight = max(0, int(weights.fill_rate * 10))
         model.Minimize(
             cost_weight * sum(cost_terms)
-            - turnover_weight * 1000 * sum(own_task_terms)
+            - turnover_weight * sum(own_task_terms)
             + fill_weight * sum(unused_capacity_vars)
         )
 
         solver = cp_model.CpSolver()
         solver.parameters.max_time_in_seconds = config.solver_time_limit_seconds
+        solver.parameters.num_search_workers = 8
         status = solver.Solve(model)
         if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
             return ScheduleSolution(

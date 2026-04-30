@@ -72,10 +72,16 @@ D:\miniconda3\python.exe -m shorthaul_agent.cli run-experiment --data-dir D题 -
 - `experiment_report.md`
 - `sensitivity_analysis.csv`
 - `sensitivity_analysis.xlsx`
+- `focus_routes_report.md`
+- `gantt_problem2.png`
+- `gantt_problem3.png`
+- `sensitivity_on_time.png`
 
 实验使用可解释统计预测基线：日度预测采用“预知货量 × 历史校正因子”，10 分钟拆解采用历史到达比例。调度阶段优先调用 OR-Tools CP-SAT，失败时自动启发式兜底。
 
 实验链路还包含问题 4 的固定方案敏感性分析：在问题 3 调度方案不重新优化的前提下，模拟总量偏差 `-30%/-10%/+10%/+30%` 与时间漂移 `-60/-30/+30/+60/+90` 分钟，输出滞留量、按时装载率、自有车周转率和车辆均包裹变化。
+
+问题 3 额外加入非退化保护：标准容器是可选技术，因此问题 2 的可行调度可以转换为问题 3 的无退化基线；若 CP-SAT 在限定时间内给出的容器方案成本更高，系统会采用该基线并对小于 800 件的自有车任务标记可使用容器。
 
 本机 Codex 进程创建新 conda 环境时被 conda 包缓存写权限拦截；但 `D:\miniconda3\python.exe` 的 base 环境已包含 `pandas/numpy/openpyxl/ortools`，因此当前真实实验先基于 base Python 完成。手动终端创建环境时建议：
 
@@ -162,10 +168,10 @@ flowchart LR
     G --> E
 ```
 
-## 下一步路线
+## 路线完成情况
 
-1. 接入真实附件数据，将论文中的 `附件 1/2/3` 和结果表转换成标准 JSON/CSV 输入。
-2. 完善 CP-SAT 模型，加入更精细的外部成本、车队归属、串点旅行时间和跨日时间窗。
-3. 增加鲁棒性仿真模块，复现论文第 8 章的总量偏差与时间漂移敏感性分析。
-4. 增加 Web/API 层：FastAPI 服务、调度结果导出、甘特图和重点线路解释。
-5. 整理 GitHub Actions：运行烟测、单元测试和格式检查。
+1. 已接入真实附件数据，并生成结果表 1-4 的 `outputs/` 副本。
+2. 已完善 CP-SAT 调度模型，覆盖外部成本、车队归属、串点成本、跨日分钟轴和容器非退化基线。
+3. 已增加鲁棒性仿真，覆盖总量偏差与时间漂移场景。
+4. 已增加 FastAPI 服务、调度结果导出、甘特图和重点线路解释报告。
+5. 已整理 GitHub Actions，运行格式检查、包编译、烟测和单元测试。

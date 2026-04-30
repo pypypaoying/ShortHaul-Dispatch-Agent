@@ -78,11 +78,14 @@ def run_experiment(data_dir: Path, output_dir: Path, prefer_cpsat: bool = True) 
     tasks_p3 = generate_dispatch_tasks(instance_no_container, config_p3)
     solution_p3 = solve_with_fallback(instance_no_container, tasks_p3, config_p3)
     result4 = assignments_to_result_table(solution_p3, target_date, base_date, include_container=True)
+    sensitivity = run_sensitivity_analysis(result2, solution_p3, instance_no_container, config_p3, base_date)
 
     result1.to_excel(output_dir / "result_table_1.xlsx", index=False)
     result2.to_excel(output_dir / "result_table_2.xlsx", index=False)
     result3.to_excel(output_dir / "result_table_3.xlsx", index=False)
     result4.to_excel(output_dir / "result_table_4.xlsx", index=False)
+    sensitivity.to_csv(output_dir / "sensitivity_analysis.csv", index=False, encoding="utf-8-sig")
+    sensitivity.to_excel(output_dir / "sensitivity_analysis.xlsx", index=False)
 
     summary = build_summary(
         dataset=dataset,
@@ -94,6 +97,7 @@ def run_experiment(data_dir: Path, output_dir: Path, prefer_cpsat: bool = True) 
         tasks_p3=len(tasks_p3),
         solution_p2=solution_p2,
         solution_p3=solution_p3,
+        sensitivity=sensitivity,
     )
     write_json(output_dir / "experiment_summary.json", summary)
     (output_dir / "experiment_report.md").write_text(render_report(summary), encoding="utf-8")
@@ -318,6 +322,7 @@ def build_summary(
     tasks_p3: int,
     solution_p2: ScheduleSolution,
     solution_p3: ScheduleSolution,
+    sensitivity: pd.DataFrame,
 ) -> Dict[str, Any]:
     focus = {}
     for route in FOCUS_ROUTES:
@@ -343,6 +348,7 @@ def build_summary(
             "result_table_2_missing": int(result2["包裹量"].isna().sum()),
             "result_table_3_rows": int(len(result3)),
             "result_table_4_rows": int(len(result4)),
+            "sensitivity_rows": int(len(sensitivity)),
         },
         "problem2": {
             "task_count": tasks_p2,
@@ -361,6 +367,7 @@ def build_summary(
             "warnings": solution_p3.warnings,
         },
         "focus_routes": focus,
+        "sensitivity": summarize_sensitivity(sensitivity),
     }
 
 
@@ -382,6 +389,7 @@ def render_report(summary: Dict[str, Any]) -> str:
         f"- 结果表 2：{summary['outputs']['result_table_2_rows']} 行，缺失 {summary['outputs']['result_table_2_missing']} 个",
         f"- 结果表 3：{summary['outputs']['result_table_3_rows']} 行",
         f"- 结果表 4：{summary['outputs']['result_table_4_rows']} 行",
+        f"- 敏感性分析：{summary['outputs']['sensitivity_rows']} 个场景",
         "",
         "## 问题 2 KPI",
         _kpi_line(p2),
@@ -397,10 +405,142 @@ def render_report(summary: Dict[str, Any]) -> str:
             f"问题2调度行 {item['problem2_rows']}，问题3调度行 {item['problem3_rows']}"
         )
     lines.append("")
+    lines.append("## 问题 4 敏感性分析")
+    sensitivity = summary["sensitivity"]
+    lines.append(
+        f"- 基准场景装载 {sensitivity['baseline_loaded_volume']:.0f}，滞留 {sensitivity['baseline_stranded_volume']:.0f}，"
+        f"按时装载率 {sensitivity['baseline_on_time_rate']:.2%}"
+    )
+    lines.append(
+        f"- 最差服务场景：{sensitivity['worst_service_scenario']}，按时装载率 {sensitivity['worst_on_time_rate']:.2%}，"
+        f"滞留 {sensitivity['worst_stranded_volume']:.0f}"
+    )
+    lines.append(
+        f"- 最大滞留场景：{sensitivity['max_stranded_scenario']}，滞留 {sensitivity['max_stranded_volume']:.0f}"
+    )
+    lines.append("")
     lines.append("## 说明")
     lines.append("- 本批实验使用可解释统计预测基线，非 LSTM-MLP。")
     lines.append("- 若求解器显示 heuristic，表示 CP-SAT 未可用或未返回可行分配，已自动启发式兜底。")
     return "\n".join(lines)
+
+
+def run_sensitivity_analysis(
+    forecast: pd.DataFrame,
+    solution: ScheduleSolution,
+    instance: Instance,
+    config: ProblemConfig,
+    base_date: pd.Timestamp,
+) -> pd.DataFrame:
+    """Evaluate a fixed problem-3 schedule under volume bias and arrival drift scenarios."""
+    scenarios = [{"scenario_type": "baseline", "parameter": "base", "volume_factor": 1.0, "shift_minutes": 0}]
+    scenarios.extend(
+        {"scenario_type": "volume_bias", "parameter": f"{factor:+.0%}", "volume_factor": factor, "shift_minutes": 0}
+        for factor in (0.7, 0.9, 1.1, 1.3)
+    )
+    scenarios.extend(
+        {"scenario_type": "time_shift", "parameter": f"{shift:+d}min", "volume_factor": 1.0, "shift_minutes": shift}
+        for shift in (-60, -30, 30, 60, 90)
+    )
+
+    records = []
+    baseline = None
+    for scenario in scenarios:
+        metrics = simulate_fixed_schedule(forecast, solution, instance, config, base_date, scenario["volume_factor"], scenario["shift_minutes"])
+        row = {**scenario, **metrics}
+        if scenario["scenario_type"] == "baseline":
+            baseline = row
+        records.append(row)
+
+    frame = pd.DataFrame(records)
+    if baseline:
+        for column in ("loaded_volume", "stranded_volume", "on_time_rate", "own_vehicle_turnover", "avg_packages_per_vehicle"):
+            base_value = float(baseline[column])
+            if base_value == 0:
+                frame[f"{column}_relative_change"] = 0.0
+            else:
+                frame[f"{column}_relative_change"] = frame[column] / base_value - 1.0
+    return frame
+
+
+def simulate_fixed_schedule(
+    forecast: pd.DataFrame,
+    solution: ScheduleSolution,
+    instance: Instance,
+    config: ProblemConfig,
+    base_date: pd.Timestamp,
+    volume_factor: float,
+    shift_minutes: int,
+) -> Dict[str, float]:
+    arrivals: Dict[str, list] = {}
+    total_actual_volume = 0
+    for row in forecast.itertuples(index=False):
+        row_date = pd.to_datetime(row.日期).normalize()
+        absolute_minute = int((row_date - base_date).days * 1440 + time_to_minute(row.分钟起始) + shift_minutes)
+        volume = int(round(float(row.包裹量) * volume_factor))
+        volume = max(volume, 0)
+        total_actual_volume += volume
+        arrivals.setdefault(row.线路编码, []).append([absolute_minute, volume])
+
+    for route_buckets in arrivals.values():
+        route_buckets.sort(key=lambda item: item[0])
+
+    loaded_volume = 0
+    loaded_by_own = 0
+    loaded_assignment_count = 0
+    own_loaded_assignment_count = 0
+    for assignment in sorted(solution.assignments, key=lambda item: item.start_minute):
+        capacity = config.container_capacity if assignment.use_container else config.vehicle_capacity
+        remaining_capacity = capacity
+        assignment_loaded = 0
+        for route_id in assignment.route_ids:
+            buckets = arrivals.get(route_id, [])
+            for bucket in buckets:
+                if bucket[0] > assignment.start_minute or remaining_capacity <= 0:
+                    break
+                take = min(bucket[1], remaining_capacity)
+                bucket[1] -= take
+                remaining_capacity -= take
+                assignment_loaded += take
+        loaded_volume += assignment_loaded
+        if assignment_loaded > 0:
+            loaded_assignment_count += 1
+            if not assignment.is_external:
+                own_loaded_assignment_count += 1
+                loaded_by_own += assignment_loaded
+
+    stranded_volume = max(total_actual_volume - loaded_volume, 0)
+    total_own_vehicle_count = sum(fleet.vehicle_count for fleet in instance.fleets)
+    external_task_count = sum(1 for assignment in solution.assignments if assignment.is_external)
+    vehicle_denominator = total_own_vehicle_count + external_task_count
+    return {
+        "total_actual_volume": float(total_actual_volume),
+        "loaded_volume": float(loaded_volume),
+        "loaded_by_own": float(loaded_by_own),
+        "stranded_volume": float(stranded_volume),
+        "on_time_rate": loaded_volume / total_actual_volume if total_actual_volume else 1.0,
+        "loaded_assignment_count": float(loaded_assignment_count),
+        "own_loaded_assignment_count": float(own_loaded_assignment_count),
+        "own_vehicle_turnover": own_loaded_assignment_count / total_own_vehicle_count if total_own_vehicle_count else 0.0,
+        "avg_packages_per_vehicle": loaded_volume / vehicle_denominator if vehicle_denominator else 0.0,
+        "total_cost": float(solution.kpis.get("total_cost", 0.0)),
+    }
+
+
+def summarize_sensitivity(sensitivity: pd.DataFrame) -> Dict[str, Any]:
+    baseline = sensitivity[sensitivity["scenario_type"] == "baseline"].iloc[0]
+    worst_service = sensitivity.sort_values("on_time_rate").iloc[0]
+    max_stranded = sensitivity.sort_values("stranded_volume", ascending=False).iloc[0]
+    return {
+        "baseline_loaded_volume": float(baseline["loaded_volume"]),
+        "baseline_stranded_volume": float(baseline["stranded_volume"]),
+        "baseline_on_time_rate": float(baseline["on_time_rate"]),
+        "worst_service_scenario": f"{worst_service['scenario_type']} {worst_service['parameter']}",
+        "worst_on_time_rate": float(worst_service["on_time_rate"]),
+        "worst_stranded_volume": float(worst_service["stranded_volume"]),
+        "max_stranded_scenario": f"{max_stranded['scenario_type']} {max_stranded['parameter']}",
+        "max_stranded_volume": float(max_stranded["stranded_volume"]),
+    }
 
 
 def _kpi_line(problem: Dict[str, Any]) -> str:

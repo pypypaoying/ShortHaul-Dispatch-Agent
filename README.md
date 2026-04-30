@@ -70,8 +70,12 @@ D:\miniconda3\python.exe -m shorthaul_agent.cli run-experiment --data-dir D题 -
 - `result_table_4.xlsx`
 - `experiment_summary.json`
 - `experiment_report.md`
+- `sensitivity_analysis.csv`
+- `sensitivity_analysis.xlsx`
 
 实验使用可解释统计预测基线：日度预测采用“预知货量 × 历史校正因子”，10 分钟拆解采用历史到达比例。调度阶段优先调用 OR-Tools CP-SAT，失败时自动启发式兜底。
+
+实验链路还包含问题 4 的固定方案敏感性分析：在问题 3 调度方案不重新优化的前提下，模拟总量偏差 `-30%/-10%/+10%/+30%` 与时间漂移 `-60/-30/+30/+60/+90` 分钟，输出滞留量、按时装载率、自有车周转率和车辆均包裹变化。
 
 本机 Codex 进程创建新 conda 环境时被 conda 包缓存写权限拦截；但 `D:\miniconda3\python.exe` 的 base 环境已包含 `pandas/numpy/openpyxl/ortools`，因此当前真实实验先基于 base Python 完成。手动终端创建环境时建议：
 

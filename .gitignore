@@ -12,4 +12,6 @@ examples/*solution*.json
 D题/
 outputs/
 outputs_heuristic/
+outputs_baseline_comparison/
+.worktrees/
 .env

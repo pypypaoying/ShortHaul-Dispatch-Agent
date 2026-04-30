@@ -306,3 +306,14 @@ uvicorn shorthaul_agent.api:app --host 127.0.0.1 --port 8000
 3. 预测偏差鲁棒性仿真；
 4. FastAPI 服务、甘特图和重点线路解释；
 5. GitHub Actions 质量检查。
+# Baseline Comparison Experiment
+
+The next experimental stage treats the previous D-problem reproduction as a benchmark instead of the final goal. The command `compare-baselines` executes the current multi-agent workflow and a heuristic-only workflow, then joins them with the paper reference KPIs and, when available, a legacy experiment summary from the pre-agent commit.
+
+The comparison table contains one row per scenario and problem, including total cost, own-vehicle turnover, average packages per vehicle, external task count, container task count, constraint audit status, agent trace length, robustness metrics, and gaps against the paper reference values. Problem 3 is reported in two views: the pure CP-SAT container candidate and the repaired non-regression baseline, so container degradation is visible instead of hidden.
+
+This stage is designed to answer two questions:
+- Optimization quality: which solver/scenario currently has the lowest cost and how far is it from the paper reference?
+- Architecture value: does the multi-agent system add auditability, repair metadata, and stable experiment artifacts without breaking the reproduction pipeline?
+
+The generated artifacts are `comparison_table.xlsx`, `comparison_summary.json`, `comparison_report.md`, `cost_turnover_comparison.png`, and `robustness_comparison.png` under `outputs_baseline_comparison/`.

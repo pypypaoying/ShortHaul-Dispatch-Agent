@@ -46,7 +46,15 @@ def create_app():
 
     @app.get("/reports/{report_name}")
     def report(report_name: str, output_dir: str = "outputs") -> Dict[str, Any]:
-        allowed = {"experiment_summary.json", "experiment_report.md", "constraint_audit.json", "constraint_audit.md", "focus_routes_report.md"}
+        allowed = {
+            "experiment_summary.json",
+            "experiment_report.md",
+            "constraint_audit.json",
+            "constraint_audit.md",
+            "focus_routes_report.md",
+            "comparison_summary.json",
+            "comparison_report.md",
+        }
         if report_name not in allowed:
             return {"error": "unsupported report", "allowed": sorted(allowed)}
         path = Path(output_dir) / report_name

@@ -7,6 +7,7 @@ import sys
 from pathlib import Path
 
 from shorthaul_agent import DispatchOrchestrator, ProblemConfig
+from shorthaul_agent.baseline_comparison import compare_baselines
 from shorthaul_agent.experiment import run_experiment
 from shorthaul_agent.io import load_instance, write_json
 
@@ -25,6 +26,28 @@ def main() -> None:
         print(f"Experiment complete. Result table 3 rows: {summary['outputs']['result_table_3_rows']}")
         print(f"Problem 2 solver: {summary['problem2']['solver']} / {summary['problem2']['status']}")
         print(f"Problem 3 solver: {summary['problem3']['solver']} / {summary['problem3']['status']}")
+        print(f"Outputs written to {args.output_dir}")
+        return
+
+    if len(sys.argv) > 1 and sys.argv[1] == "compare-baselines":
+        parser = argparse.ArgumentParser(description="Compare D-problem baselines and multi-agent runs.")
+        parser.add_argument("command")
+        parser.add_argument("--data-dir", default="D题", help="Path to the D-problem folder.")
+        parser.add_argument("--output-dir", default="outputs_baseline_comparison", help="Directory for comparison artifacts.")
+        parser.add_argument("--config", default=None, help="Optional experiment YAML/JSON config path.")
+        parser.add_argument("--legacy-summary", default=None, help="Optional old experiment_summary.json for legacy comparison.")
+        args = parser.parse_args()
+        config_path = Path(args.config) if args.config else None
+        legacy_summary = Path(args.legacy_summary) if args.legacy_summary else None
+        summary = compare_baselines(
+            data_dir=Path(args.data_dir),
+            output_dir=Path(args.output_dir),
+            config_path=config_path,
+            legacy_summary=legacy_summary,
+        )
+        print("Baseline comparison complete.")
+        print(f"Rows: {summary['table_rows']}")
+        print(f"Best by problem: {summary['best_by_problem']}")
         print(f"Outputs written to {args.output_dir}")
         return
 

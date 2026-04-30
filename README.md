@@ -205,3 +205,21 @@ flowchart LR
 3. 已增加鲁棒性仿真，覆盖总量偏差与时间漂移场景。
 4. 已增加 FastAPI 服务、调度结果导出、甘特图和重点线路解释报告。
 5. 已整理 GitHub Actions，运行格式检查、包编译、烟测和单元测试。
+# Baseline Comparison Stage
+
+This repository now includes a reproducible baseline comparison command for the D-problem experiment. It runs the current multi-agent pipeline, a heuristic-only fallback, optional legacy summary data, and the paper reference KPIs into one comparison table.
+
+```powershell
+$env:PYTHONPATH="src"
+D:\miniconda3\python.exe -m shorthaul_agent.cli compare-baselines --config experiments/d_problem_baseline.yaml --data-dir D题 --output-dir outputs_baseline_comparison --legacy-summary outputs_baseline_comparison\runs\legacy_pipeline\experiment_summary.json
+```
+
+Generated artifacts:
+- `outputs_baseline_comparison/comparison_table.xlsx`
+- `outputs_baseline_comparison/comparison_table.csv`
+- `outputs_baseline_comparison/comparison_summary.json`
+- `outputs_baseline_comparison/comparison_report.md`
+- `outputs_baseline_comparison/cost_turnover_comparison.png`
+- `outputs_baseline_comparison/robustness_comparison.png`
+
+The comparison answers whether the new multi-agent architecture improves the project beyond a single-script reproduction. Cost and turnover remain solver KPIs, while the multi-agent layer is evaluated through traceable `agent_trace`, constraint audit status, repair metadata, and stable report outputs.

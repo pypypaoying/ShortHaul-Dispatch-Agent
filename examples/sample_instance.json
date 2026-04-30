@@ -1,0 +1,98 @@
+{
+  "id": "paper-derived-demo",
+  "date": "2024-12-16",
+  "fleets": [
+    {
+      "id": "车队 3",
+      "vehicle_count": 3,
+      "fixed_cost": 520,
+      "variable_cost_per_trip": 80,
+      "normal_load_minutes": 45,
+      "normal_unload_minutes": 45,
+      "container_load_minutes": 20,
+      "container_unload_minutes": 20
+    },
+    {
+      "id": "车队 1",
+      "vehicle_count": 2,
+      "fixed_cost": 480,
+      "variable_cost_per_trip": 70,
+      "normal_load_minutes": 45,
+      "normal_unload_minutes": 45,
+      "container_load_minutes": 20,
+      "container_unload_minutes": 20
+    }
+  ],
+  "routes": [
+    {
+      "id": "场地 3 - 站点 83 - 0600",
+      "origin": "场地 3",
+      "destination": "站点 83",
+      "wave": "0600",
+      "latest_dispatch_minute": 1800,
+      "travel_minutes": 35,
+      "fleet_id": "车队 3",
+      "variable_cost": 150,
+      "external_cost_multiplier": 1.35
+    },
+    {
+      "id": "场地 3 - 站点 83 - 1400",
+      "origin": "场地 3",
+      "destination": "站点 83",
+      "wave": "1400",
+      "latest_dispatch_minute": 2280,
+      "travel_minutes": 35,
+      "fleet_id": "车队 3",
+      "variable_cost": 150,
+      "external_cost_multiplier": 1.35
+    },
+    {
+      "id": "场地 3 - 站点 12 - 0600",
+      "origin": "场地 3",
+      "destination": "站点 12",
+      "wave": "0600",
+      "latest_dispatch_minute": 1800,
+      "travel_minutes": 25,
+      "fleet_id": "车队 3",
+      "variable_cost": 120,
+      "external_cost_multiplier": 1.35
+    },
+    {
+      "id": "场地 3 - 站点 27 - 0600",
+      "origin": "场地 3",
+      "destination": "站点 27",
+      "wave": "0600",
+      "latest_dispatch_minute": 1800,
+      "travel_minutes": 30,
+      "fleet_id": "车队 3",
+      "variable_cost": 130,
+      "external_cost_multiplier": 1.35
+    },
+    {
+      "id": "场地 1 - 站点 9 - 0600",
+      "origin": "场地 1",
+      "destination": "站点 9",
+      "wave": "0600",
+      "latest_dispatch_minute": 1800,
+      "travel_minutes": 28,
+      "fleet_id": "车队 1",
+      "variable_cost": 110,
+      "external_cost_multiplier": 1.35
+    }
+  ],
+  "forecast": [
+    {"route_id": "场地 3 - 站点 83 - 0600", "minute": 1380, "volume": 600},
+    {"route_id": "场地 3 - 站点 83 - 0600", "minute": 1460, "volume": 500},
+    {"route_id": "场地 3 - 站点 83 - 0600", "minute": 1540, "volume": 700},
+    {"route_id": "场地 3 - 站点 83 - 0600", "minute": 1680, "volume": 450},
+    {"route_id": "场地 3 - 站点 83 - 1400", "minute": 2100, "volume": 750},
+    {"route_id": "场地 3 - 站点 83 - 1400", "minute": 2190, "volume": 500},
+    {"route_id": "场地 3 - 站点 83 - 1400", "minute": 2250, "volume": 300},
+    {"route_id": "场地 3 - 站点 12 - 0600", "minute": 1430, "volume": 400},
+    {"route_id": "场地 3 - 站点 12 - 0600", "minute": 1600, "volume": 500},
+    {"route_id": "场地 3 - 站点 27 - 0600", "minute": 1500, "volume": 300},
+    {"route_id": "场地 3 - 站点 27 - 0600", "minute": 1650, "volume": 500},
+    {"route_id": "场地 1 - 站点 9 - 0600", "minute": 1440, "volume": 900},
+    {"route_id": "场地 1 - 站点 9 - 0600", "minute": 1710, "volume": 450}
+  ]
+}

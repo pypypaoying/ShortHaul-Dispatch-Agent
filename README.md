@@ -1,0 +1,105 @@
+# 短途运输多智能体调度 Agent
+
+本项目将数学建模论文《基于混合预测与约束规划的短途运输集成调度优化研究》工程化为一个 **LLM + 约束规划** 的短途运输调度 Agent。
+
+核心分工：
+
+- LLM/规则解析：理解自然语言调度需求，抽取日期、目标线路、容量、容器、优化偏好等结构化约束。
+- 约束检查：校验线路、车队、预测货量、时间窗、容量和串点规则。
+- 任务生成：将 10 分钟粒度货量转成满载任务与尾货任务，并对尾货做串点合并。
+- 求解器调用：优先使用 OR-Tools CP-SAT；若环境未安装 OR-Tools，则自动使用确定性启发式兜底。
+- 方案解释：输出成本、周转率、装载率、外部承运数，以及重点线路的发运方案。
+- 异常修复：为不可行输入或运力不足提供放松建议与兜底策略。
+
+## 当前状态
+
+已经完成一个可运行的 MVP：
+
+- `src/shorthaul_agent/`：核心 Python 包
+- `examples/sample_instance.json`：论文场景简化样例
+- `examples/sample_request.txt`：中文自然语言调度需求
+- `reports/technical_report.md`：技术报告初稿
+- `scripts/smoke_test.py`：端到端烟测
+
+当前工作区没有安装 OR-Tools，样例会自动走启发式求解。安装 `.[solver]` 后会优先调用 CP-SAT。
+
+## 快速运行
+
+```powershell
+$env:PYTHONPATH="src"
+python -m shorthaul_agent.cli --instance examples/sample_instance.json --request examples/sample_request.txt --output examples/sample_solution.json
+```
+
+或运行烟测：
+
+```powershell
+python scripts/smoke_test.py
+```
+
+推荐的完整开发安装：
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -e ".[solver,llm,dev]"
+```
+
+启用 LLM 解析：
+
+```powershell
+$env:OPENAI_API_KEY="你的 API Key"
+$env:SHORT_HAUL_LLM_MODEL="你的模型名"
+```
+
+没有 API Key 时，系统使用内置规则解析器，仍可完成样例调度。
+
+## 项目结构
+
+```text
+.
+├── MC25002885-D.pdf                  # 原数学建模论文
+├── README.md
+├── pyproject.toml
+├── examples/
+│   ├── sample_instance.json
+│   └── sample_request.txt
+├── reports/
+│   └── technical_report.md
+├── scripts/
+│   └── smoke_test.py
+├── src/shorthaul_agent/
+│   ├── agents.py
+│   ├── cli.py
+│   ├── io.py
+│   ├── models.py
+│   ├── parsing.py
+│   ├── validation.py
+│   └── solvers/
+│       ├── cpsat.py
+│       ├── heuristic.py
+│       └── task_generation.py
+└── tests/
+    └── test_pipeline.py
+```
+
+## Agent 流程
+
+```mermaid
+flowchart LR
+    A["自然语言需求"] --> B["需求解析 Agent"]
+    B --> C["约束检查 Agent"]
+    C --> D["任务生成: 满载 + 尾货串点"]
+    D --> E["求解器 Agent: CP-SAT / 启发式"]
+    E --> F["方案解释 Agent"]
+    C --> G["异常修复 Agent"]
+    G --> E
+```
+
+## 下一步路线
+
+1. 接入真实附件数据，将论文中的 `附件 1/2/3` 和结果表转换成标准 JSON/CSV 输入。
+2. 完善 CP-SAT 模型，加入更精细的外部成本、车队归属、串点旅行时间和跨日时间窗。
+3. 增加鲁棒性仿真模块，复现论文第 8 章的总量偏差与时间漂移敏感性分析。
+4. 增加 Web/API 层：FastAPI 服务、调度结果导出、甘特图和重点线路解释。
+5. 整理 GitHub Actions：运行烟测、单元测试和格式检查。
+

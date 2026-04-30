@@ -132,7 +132,8 @@ class CpSatScheduler:
 
         solver = cp_model.CpSolver()
         solver.parameters.max_time_in_seconds = config.solver_time_limit_seconds
-        solver.parameters.num_search_workers = 8
+        solver.parameters.num_search_workers = config.cpsat_num_workers
+        solver.parameters.random_seed = config.cpsat_search_seed
         status = solver.Solve(model)
         if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
             return ScheduleSolution(

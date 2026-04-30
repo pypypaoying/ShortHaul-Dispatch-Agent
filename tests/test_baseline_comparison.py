@@ -12,6 +12,7 @@ from shorthaul_agent.baseline_comparison import (  # noqa: E402
     dataframe_to_markdown,
     paper_reference_rows,
     render_comparison_report,
+    scenario_delta,
 )
 
 
@@ -46,6 +47,31 @@ def test_best_by_problem_ignores_paper_reference_rows():
     best = best_by_problem(frame)
     assert best["problem2"]["scenario"] == "Heuristic"
     assert best["problem2"]["total_cost"] == 8.0
+
+
+def test_scenario_delta_reports_current_minus_comparator():
+    frame = pd.DataFrame(
+        [
+            {
+                "scenario": "Current Multi-Agent",
+                "problem": "problem2",
+                "total_cost": 8,
+                "own_vehicle_turnover": 3,
+                "external_task_count": 2,
+            },
+            {
+                "scenario": "Legacy Pipeline",
+                "problem": "problem2",
+                "total_cost": 10,
+                "own_vehicle_turnover": 2,
+                "external_task_count": 4,
+            },
+        ]
+    )
+    delta = scenario_delta(frame, "Current Multi-Agent", "Legacy Pipeline")
+    assert delta["problem2"]["cost_delta"] == -2.0
+    assert delta["problem2"]["turnover_delta"] == 1.0
+    assert delta["problem2"]["external_task_delta"] == -2.0
 
 
 def test_markdown_report_does_not_require_optional_tabulate():

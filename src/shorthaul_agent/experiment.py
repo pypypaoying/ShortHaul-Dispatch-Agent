@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import math
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, datetime, time, timedelta
 from pathlib import Path
 from typing import Any, Dict, Iterable, Optional, Tuple
@@ -38,10 +38,14 @@ class ExperimentConfig:
     solver_strategy: str = "cpsat_with_heuristic_fallback"
     prefer_cpsat: bool = True
     solver_time_limit_seconds: float = 20.0
+    cpsat_search_seeds: list = None
+    cpsat_num_workers: int = 8
     run_weight_grid: bool = True
     focus_routes: list = None
 
     def __post_init__(self) -> None:
+        if self.cpsat_search_seeds is None:
+            self.cpsat_search_seeds = [0]
         if self.focus_routes is None:
             self.focus_routes = list(FOCUS_ROUTES)
 
@@ -95,17 +99,22 @@ def parse_simple_yaml(text: str) -> Dict[str, Any]:
         key = key.strip()
         raw_value = raw_value.strip()
         if raw_value.startswith("[") and raw_value.endswith("]"):
-            value = [item.strip().strip("\"'") for item in raw_value[1:-1].split(",") if item.strip()]
+            value = [parse_yaml_scalar(item.strip().strip("\"'")) for item in raw_value[1:-1].split(",") if item.strip()]
         elif raw_value.lower() in {"true", "false"}:
             value = raw_value.lower() == "true"
         else:
-            value = raw_value.strip("\"'")
-            try:
-                value = float(value) if "." in value else int(value)
-            except ValueError:
-                pass
+            value = parse_yaml_scalar(raw_value.strip("\"'"))
         data[key] = value
     return data
+
+
+def parse_yaml_scalar(value: str) -> Any:
+    if value.lower() in {"true", "false"}:
+        return value.lower() == "true"
+    try:
+        return float(value) if "." in value else int(value)
+    except ValueError:
+        return value
 
 
 def run_configured_experiment(experiment_config: ExperimentConfig) -> Dict[str, Any]:
@@ -269,6 +278,8 @@ class DemandGenerationAgent:
             "allow_external": True,
             "prefer_cpsat": experiment_config.prefer_cpsat,
             "solver_time_limit_seconds": experiment_config.solver_time_limit_seconds,
+            "cpsat_search_seeds": tuple(int(seed) for seed in experiment_config.cpsat_search_seeds),
+            "cpsat_num_workers": int(experiment_config.cpsat_num_workers),
             "milk_run_pairs": milk_run_pairs,
         }
         config_p2 = ProblemConfig(allow_container=False, **common_config)
@@ -558,13 +569,58 @@ def build_instance(dataset: DDataset, result2: pd.DataFrame, target_date: pd.Tim
 
 def solve_with_fallback(instance: Instance, tasks: list, config: ProblemConfig) -> ScheduleSolution:
     if config.prefer_cpsat and CpSatScheduler.available():
-        solution = CpSatScheduler().solve(instance, tasks, config)
+        solution = solve_cpsat_portfolio(instance, tasks, config)
         if solution.assignments:
             return solution
     solution = HeuristicScheduler().solve(instance, tasks, config)
     if config.prefer_cpsat:
         solution.warnings.append("CP-SAT unavailable or did not return assignments; used heuristic fallback.")
     return solution
+
+
+def solve_cpsat_portfolio(instance: Instance, tasks: list, config: ProblemConfig) -> ScheduleSolution:
+    seeds = tuple(int(seed) for seed in (config.cpsat_search_seeds or (config.cpsat_search_seed,)))
+    if len(seeds) <= 1:
+        return CpSatScheduler().solve(instance, tasks, config)
+
+    per_seed_limit = float(config.solver_time_limit_seconds)
+    candidates: list[ScheduleSolution] = []
+    diagnostics = []
+    for seed in seeds:
+        seeded_config = replace(config, solver_time_limit_seconds=per_seed_limit, cpsat_search_seed=seed)
+        candidate = CpSatScheduler().solve(instance, tasks, seeded_config)
+        if candidate.assignments:
+            candidates.append(candidate)
+        diagnostics.append(
+            {
+                "seed": seed,
+                "status": candidate.status,
+                "total_cost": candidate.kpis.get("total_cost") if candidate.kpis else None,
+                "external_task_count": candidate.kpis.get("external_task_count") if candidate.kpis else None,
+            }
+        )
+
+    if not candidates:
+        return ScheduleSolution(
+            status="NO_PORTFOLIO_FEASIBLE",
+            objective=float("inf"),
+            assignments=[],
+            kpis={},
+            warnings=[f"CP-SAT portfolio failed for seeds: {diagnostics}"],
+            solver="ortools-cpsat-portfolio",
+        )
+
+    best = min(
+        candidates,
+        key=lambda solution: (
+            solution.kpis.get("total_cost", float("inf")),
+            solution.kpis.get("external_task_count", float("inf")),
+            -solution.kpis.get("own_vehicle_turnover", 0),
+        ),
+    )
+    best.solver = "ortools-cpsat-portfolio"
+    best.warnings.append(f"CP-SAT portfolio evaluated seeds with {per_seed_limit:.1f}s each: {diagnostics}")
+    return best
 
 
 def convert_problem2_to_container_baseline(
@@ -700,6 +756,8 @@ def build_summary(
             "target_date": experiment_config.target_date,
             "base_date": experiment_config.base_date,
             "prefer_cpsat": experiment_config.prefer_cpsat,
+            "cpsat_search_seeds": experiment_config.cpsat_search_seeds,
+            "cpsat_num_workers": experiment_config.cpsat_num_workers,
         },
         "data": {
             "routes": int(dataset.routes["线路编码"].nunique()),

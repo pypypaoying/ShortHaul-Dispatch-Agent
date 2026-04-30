@@ -317,3 +317,18 @@ This stage is designed to answer two questions:
 - Architecture value: does the multi-agent system add auditability, repair metadata, and stable experiment artifacts without breaking the reproduction pipeline?
 
 The generated artifacts are `comparison_table.xlsx`, `comparison_summary.json`, `comparison_report.md`, `cost_turnover_comparison.png`, and `robustness_comparison.png` under `outputs_baseline_comparison/`.
+
+# Performance Improvement: CP-SAT Portfolio
+
+The first optimization phase improves the solver layer without changing the D-problem data adapter, forecast model, task generation rules, or hard constraints. The new performance config `experiments/d_problem_performance.yaml` enables a CP-SAT portfolio over seeds `[0, 7, 19]`. Each seed receives the full configured time limit, and the solver agent selects the feasible schedule with the lowest measured total cost, then uses the existing non-regression repair rule for problem 3.
+
+Latest validated comparison:
+
+| Scenario | Problem 2 Cost | Problem 3 Cost | Turnover | External Tasks |
+| --- | ---: | ---: | ---: | ---: |
+| Paper reference | 56776 | 47106 | 2.49 / 2.62 | n/a |
+| Legacy pipeline | 71806 | 71806 | 3.1636 | 228 |
+| Current multi-agent portfolio | 68518 | 68518 | 3.1727 | 227 |
+| Heuristic fallback | 78573 | 78506 | 3.0364 | 242 |
+
+This improves the current multi-agent architecture from traceable reproduction to measurable optimization progress: cost decreases by `3288` against the legacy pipeline while preserving constraint audit status `pass` and the 12-step multi-agent execution trace. The result is still above the paper reference, so the next optimization target is task generation and forecast calibration rather than another presentation-layer change.

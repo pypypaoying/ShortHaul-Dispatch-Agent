@@ -1,6 +1,7 @@
 __pycache__/
 *.py[cod]
 .pytest_cache/
+pytest-cache-files-*/
 .ruff_cache/
 .mypy_cache/
 .venv/
@@ -13,5 +14,6 @@ D题/
 outputs/
 outputs_heuristic/
 outputs_baseline_comparison/
+outputs_performance_stage/
 .worktrees/
 .env

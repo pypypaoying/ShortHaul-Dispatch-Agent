@@ -25,6 +25,9 @@ class ProblemConfig:
     prefer_cpsat: bool = True
     set_cover_tail_threshold: int = 80
     solver_time_limit_seconds: float = 10.0
+    cpsat_search_seed: int = 0
+    cpsat_search_seeds: tuple[int, ...] = (0,)
+    cpsat_num_workers: int = 8
     objective_weights: ObjectiveWeights = field(default_factory=ObjectiveWeights)
     milk_run_pairs: set = field(default_factory=set)
 
@@ -39,6 +42,8 @@ class ProblemConfig:
                 data[key] = value
         if isinstance(data["objective_weights"], dict):
             data["objective_weights"] = ObjectiveWeights(**data["objective_weights"])
+        if isinstance(data.get("cpsat_search_seeds"), list):
+            data["cpsat_search_seeds"] = tuple(int(item) for item in data["cpsat_search_seeds"])
         return ProblemConfig(**data)
 
 

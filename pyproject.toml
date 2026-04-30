@@ -23,3 +23,7 @@ shorthaul-agent = "shorthaul_agent.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.pytest.ini_options]
+addopts = "-p no:cacheprovider"
+norecursedirs = [".git", ".venv", ".worktrees", "outputs", "outputs_*", "pytest-cache-files-*"]

@@ -49,6 +49,8 @@ def compare_baselines(
         },
         "table_rows": len(comparison),
         "best_by_problem": best_by_problem(comparison),
+        "current_vs_legacy": scenario_delta(comparison, "Current Multi-Agent", "Legacy Pipeline"),
+        "current_vs_heuristic": scenario_delta(comparison, "Current Multi-Agent", "Heuristic Only"),
         "multi_agent_assessment": assess_multi_agent(current_summary, heuristic_summary),
     }
     (output_dir / "comparison_summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -179,6 +181,29 @@ def best_by_problem(frame: pd.DataFrame) -> Dict[str, Any]:
     return result
 
 
+def scenario_delta(frame: pd.DataFrame, left_scenario: str, right_scenario: str) -> Dict[str, Any]:
+    result = {}
+    for problem in ("problem2", "problem3"):
+        left = frame[(frame["scenario"] == left_scenario) & (frame["problem"] == problem)]
+        right = frame[(frame["scenario"] == right_scenario) & (frame["problem"] == problem)]
+        if left.empty or right.empty:
+            continue
+        left_row = left.iloc[0]
+        right_row = right.iloc[0]
+        result[problem] = {
+            "cost_delta": numeric_delta(left_row.get("total_cost"), right_row.get("total_cost")),
+            "turnover_delta": numeric_delta(left_row.get("own_vehicle_turnover"), right_row.get("own_vehicle_turnover")),
+            "external_task_delta": numeric_delta(left_row.get("external_task_count"), right_row.get("external_task_count")),
+        }
+    return result
+
+
+def numeric_delta(left: Any, right: Any) -> Optional[float]:
+    if pd.isna(left) or pd.isna(right):
+        return None
+    return float(left) - float(right)
+
+
 def assess_multi_agent(current: Dict[str, Any], heuristic: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "current_agent_trace_steps": len(current.get("agent_trace", [])),
@@ -234,6 +259,8 @@ def render_comparison_report(summary: Dict[str, Any], comparison: pd.DataFrame) 
         f"- Best problem 3 run: {format_best_row(best.get('problem3', {}))}",
         f"- Current multi-agent trace steps: {assessment['current_agent_trace_steps']}",
         f"- Current constraint audit status: {assessment['current_constraint_status']}",
+        f"- Current vs legacy delta: {summary.get('current_vs_legacy', {})}",
+        f"- Current vs heuristic delta: {summary.get('current_vs_heuristic', {})}",
         "",
         "## KPI Table",
         dataframe_to_markdown(comparison),

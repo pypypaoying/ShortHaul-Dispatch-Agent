@@ -27,6 +27,40 @@ PAPER_BASELINES = {
 
 
 @dataclass
+class ExperimentConfig:
+    name: str = "d_problem_baseline"
+    data_dir: str = "D题"
+    output_dir: str = "outputs"
+    target_date: str = "2024-12-16"
+    base_date: str = "2024-12-15"
+    forecast_model: str = "statistical_baseline"
+    task_generation_strategy: str = "full_load_plus_tail_set_cover"
+    solver_strategy: str = "cpsat_with_heuristic_fallback"
+    prefer_cpsat: bool = True
+    solver_time_limit_seconds: float = 20.0
+    run_weight_grid: bool = True
+    focus_routes: list = None
+
+    def __post_init__(self) -> None:
+        if self.focus_routes is None:
+            self.focus_routes = list(FOCUS_ROUTES)
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "ExperimentConfig":
+        allowed = {field.name for field in cls.__dataclass_fields__.values()}
+        filtered = {key: value for key, value in data.items() if key in allowed}
+        return cls(**filtered)
+
+
+@dataclass
+class AgentStepResult:
+    agent: str
+    status: str
+    summary: str
+    metrics: Dict[str, Any]
+
+
+@dataclass
 class DDataset:
     routes: pd.DataFrame
     history: pd.DataFrame
@@ -36,15 +70,64 @@ class DDataset:
     result_templates: Dict[str, pd.DataFrame]
 
 
-def run_experiment(data_dir: Path, output_dir: Path, prefer_cpsat: bool = True) -> Dict[str, Any]:
-    dataset = load_d_dataset(data_dir)
+def run_experiment(data_dir: Path, output_dir: Path, prefer_cpsat: bool = True, config_path: Optional[Path] = None) -> Dict[str, Any]:
+    experiment_config = load_experiment_config(config_path) if config_path else ExperimentConfig()
+    experiment_config.data_dir = str(data_dir)
+    experiment_config.output_dir = str(output_dir)
+    experiment_config.prefer_cpsat = prefer_cpsat
+    return run_configured_experiment(experiment_config)
+
+
+def load_experiment_config(config_path: Path) -> ExperimentConfig:
+    text = config_path.read_text(encoding="utf-8")
+    if config_path.suffix.lower() == ".json":
+        return ExperimentConfig.from_dict(json.loads(text))
+    return ExperimentConfig.from_dict(parse_simple_yaml(text))
+
+
+def parse_simple_yaml(text: str) -> Dict[str, Any]:
+    data: Dict[str, Any] = {}
+    for raw_line in text.splitlines():
+        line = raw_line.split("#", 1)[0].strip()
+        if not line or ":" not in line:
+            continue
+        key, raw_value = line.split(":", 1)
+        key = key.strip()
+        raw_value = raw_value.strip()
+        if raw_value.startswith("[") and raw_value.endswith("]"):
+            value = [item.strip().strip("\"'") for item in raw_value[1:-1].split(",") if item.strip()]
+        elif raw_value.lower() in {"true", "false"}:
+            value = raw_value.lower() == "true"
+        else:
+            value = raw_value.strip("\"'")
+            try:
+                value = float(value) if "." in value else int(value)
+            except ValueError:
+                pass
+        data[key] = value
+    return data
+
+
+def run_configured_experiment(experiment_config: ExperimentConfig) -> Dict[str, Any]:
+    data_dir = Path(experiment_config.data_dir)
+    output_dir = Path(experiment_config.output_dir)
+    agent_trace: list = []
+
+    data_agent = DProblemDataAgent()
+    forecast_agent = ForecastAgent()
+    demand_agent = DemandGenerationAgent()
+    solver_agent = ExperimentSolverAgent()
+    repair_agent = ExperimentRepairAgent()
+    audit_agent = ConstraintAuditAgent()
+    explanation_agent = ExperimentExplanationAgent()
+
+    dataset = data_agent.run(data_dir, agent_trace)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    target_date = pd.Timestamp("2024-12-16")
-    base_date = target_date - pd.Timedelta(days=1)
+    target_date = pd.Timestamp(experiment_config.target_date)
+    base_date = pd.Timestamp(experiment_config.base_date)
 
-    daily_forecast = forecast_daily_volume(dataset, target_date)
-    ten_min_forecast = disaggregate_to_10min(dataset, daily_forecast, target_date)
+    daily_forecast, ten_min_forecast = forecast_agent.run(dataset, target_date, experiment_config, agent_trace)
 
     result1 = dataset.result_templates["结果表1"].copy()
     result1["线路编码"] = result1["线路编码"].map(normalize_route_code)
@@ -58,30 +141,28 @@ def run_experiment(data_dir: Path, output_dir: Path, prefer_cpsat: bool = True) 
 
     result2 = ten_min_forecast[["线路编码", "日期", "分钟起始", "包裹量"]].copy()
 
-    instance_no_container = build_instance(dataset, result2, target_date, base_date)
-    milk_run_pairs = build_milk_run_pairs(dataset.milk_run_rules)
-    common_config = {
-        "vehicle_capacity": 1000,
-        "container_capacity": 800,
-        "max_stops": 3,
-        "allow_external": True,
-        "prefer_cpsat": prefer_cpsat,
-        "solver_time_limit_seconds": 20.0,
-        "milk_run_pairs": milk_run_pairs,
-    }
+    instance_no_container, config_p2, config_p3, tasks_p2, tasks_p3 = demand_agent.run(
+        dataset,
+        result2,
+        target_date,
+        base_date,
+        experiment_config,
+        agent_trace,
+    )
+    task_audit_p2 = audit_agent.audit_tasks("problem2", tasks_p2, config_p2, agent_trace)
+    task_audit_p3 = audit_agent.audit_tasks("problem3", tasks_p3, config_p3, agent_trace)
 
-    config_p2 = ProblemConfig(allow_container=False, **common_config)
-    tasks_p2 = generate_dispatch_tasks(instance_no_container, config_p2)
-    solution_p2 = solve_with_fallback(instance_no_container, tasks_p2, config_p2)
+    solution_p2 = solver_agent.solve_problem("problem2", instance_no_container, tasks_p2, config_p2, agent_trace)
     result3 = assignments_to_result_table(solution_p2, target_date, base_date, include_container=False)
 
-    config_p3 = ProblemConfig(allow_container=True, **common_config)
-    tasks_p3 = generate_dispatch_tasks(instance_no_container, config_p3)
-    solution_p3 = solve_with_fallback(instance_no_container, tasks_p3, config_p3)
-    baseline_p3 = convert_problem2_to_container_baseline(solution_p2, tasks_p3, instance_no_container, config_p3)
-    solution_p3 = choose_lower_cost_solution(solution_p3, baseline_p3)
+    candidate_p3 = solver_agent.solve_problem("problem3_cpsat", instance_no_container, tasks_p3, config_p3, agent_trace)
+    baseline_p3 = repair_agent.build_non_regression_baseline(solution_p2, tasks_p3, instance_no_container, config_p3, agent_trace)
+    solution_p3 = repair_agent.choose_problem3_solution(candidate_p3, baseline_p3, agent_trace)
     result4 = assignments_to_result_table(solution_p3, target_date, base_date, include_container=True)
+    solution_audit_p2 = audit_agent.audit_solution("problem2", solution_p2, tasks_p2, config_p2, agent_trace)
+    solution_audit_p3 = audit_agent.audit_solution("problem3", solution_p3, tasks_p3, config_p3, agent_trace)
     sensitivity = run_sensitivity_analysis(result2, solution_p3, instance_no_container, config_p3, base_date)
+    weight_grid = run_weight_grid_search(solution_p2, candidate_p3, baseline_p3) if experiment_config.run_weight_grid else []
 
     result1.to_excel(output_dir / "result_table_1.xlsx", index=False)
     result2.to_excel(output_dir / "result_table_2.xlsx", index=False)
@@ -89,9 +170,18 @@ def run_experiment(data_dir: Path, output_dir: Path, prefer_cpsat: bool = True) 
     result4.to_excel(output_dir / "result_table_4.xlsx", index=False)
     sensitivity.to_csv(output_dir / "sensitivity_analysis.csv", index=False, encoding="utf-8-sig")
     sensitivity.to_excel(output_dir / "sensitivity_analysis.xlsx", index=False)
+    audit_report = {
+        "problem2_tasks": task_audit_p2,
+        "problem3_tasks": task_audit_p3,
+        "problem2_solution": solution_audit_p2,
+        "problem3_solution": solution_audit_p3,
+    }
+    write_json(output_dir / "constraint_audit.json", audit_report)
+    (output_dir / "constraint_audit.md").write_text(render_constraint_audit(audit_report), encoding="utf-8")
     visual_outputs = write_visual_artifacts(output_dir, solution_p2, solution_p3, sensitivity, result1, result3, result4)
 
-    summary = build_summary(
+    summary = explanation_agent.build_summary(
+        experiment_config=experiment_config,
         dataset=dataset,
         result1=result1,
         result2=result2,
@@ -101,12 +191,197 @@ def run_experiment(data_dir: Path, output_dir: Path, prefer_cpsat: bool = True) 
         tasks_p3=len(tasks_p3),
         solution_p2=solution_p2,
         solution_p3=solution_p3,
+        candidate_p3=candidate_p3,
+        baseline_p3=baseline_p3,
         sensitivity=sensitivity,
         visual_outputs=visual_outputs,
+        audit_report=audit_report,
+        agent_trace=agent_trace,
+        weight_grid=weight_grid,
     )
     write_json(output_dir / "experiment_summary.json", summary)
     (output_dir / "experiment_report.md").write_text(render_report(summary), encoding="utf-8")
     return summary
+
+
+class DProblemDataAgent:
+    name = "DataIngestionAgent"
+
+    def run(self, data_dir: Path, trace: list) -> DDataset:
+        dataset = load_d_dataset(data_dir)
+        trace.append(
+            AgentStepResult(
+                self.name,
+                "ok",
+                "Loaded official D-problem attachments and result templates.",
+                {
+                    "routes": int(dataset.routes["线路编码"].nunique()),
+                    "history_rows": int(len(dataset.history)),
+                    "known_daily_rows": int(len(dataset.known_daily)),
+                    "milk_run_rules": int(len(dataset.milk_run_rules)),
+                    "fleets": int(dataset.fleets["车队编码"].nunique()),
+                },
+            )
+        )
+        return dataset
+
+
+class ForecastAgent:
+    name = "ForecastAgent"
+
+    def run(self, dataset: DDataset, target_date: pd.Timestamp, config: ExperimentConfig, trace: list) -> tuple:
+        daily_forecast = forecast_daily_volume(dataset, target_date)
+        ten_min_forecast = disaggregate_to_10min(dataset, daily_forecast, target_date)
+        trace.append(
+            AgentStepResult(
+                self.name,
+                "ok",
+                "Generated daily and 10-minute forecasts with the statistical baseline.",
+                {
+                    "forecast_model": config.forecast_model,
+                    "daily_rows": int(len(daily_forecast)),
+                    "ten_min_rows": int(len(ten_min_forecast)),
+                    "total_predicted_volume": int(daily_forecast["predicted_volume"].sum()),
+                },
+            )
+        )
+        return daily_forecast, ten_min_forecast
+
+
+class DemandGenerationAgent:
+    name = "DemandGenerationAgent"
+
+    def run(
+        self,
+        dataset: DDataset,
+        result2: pd.DataFrame,
+        target_date: pd.Timestamp,
+        base_date: pd.Timestamp,
+        experiment_config: ExperimentConfig,
+        trace: list,
+    ) -> tuple:
+        instance = build_instance(dataset, result2, target_date, base_date)
+        milk_run_pairs = build_milk_run_pairs(dataset.milk_run_rules)
+        common_config = {
+            "vehicle_capacity": 1000,
+            "container_capacity": 800,
+            "max_stops": 3,
+            "allow_external": True,
+            "prefer_cpsat": experiment_config.prefer_cpsat,
+            "solver_time_limit_seconds": experiment_config.solver_time_limit_seconds,
+            "milk_run_pairs": milk_run_pairs,
+        }
+        config_p2 = ProblemConfig(allow_container=False, **common_config)
+        config_p3 = ProblemConfig(allow_container=True, **common_config)
+        tasks_p2 = generate_dispatch_tasks(instance, config_p2)
+        tasks_p3 = generate_dispatch_tasks(instance, config_p3)
+        trace.append(
+            AgentStepResult(
+                self.name,
+                "ok",
+                "Generated full-load, tail-load and milk-run tasks for problems 2 and 3.",
+                {
+                    "task_generation_strategy": experiment_config.task_generation_strategy,
+                    "problem2_tasks": len(tasks_p2),
+                    "problem3_tasks": len(tasks_p3),
+                    "milk_run_pairs": len(milk_run_pairs),
+                },
+            )
+        )
+        return instance, config_p2, config_p3, tasks_p2, tasks_p3
+
+
+class ExperimentSolverAgent:
+    name = "SolverAgent"
+
+    def solve_problem(self, label: str, instance: Instance, tasks: list, config: ProblemConfig, trace: list) -> ScheduleSolution:
+        solution = solve_with_fallback(instance, tasks, config)
+        trace.append(
+            AgentStepResult(
+                self.name,
+                "ok" if solution.assignments else "warning",
+                f"Solved {label} with {solution.solver}.",
+                {
+                    "label": label,
+                    "solver": solution.solver,
+                    "status": solution.status,
+                    "assigned_tasks": len(solution.assignments),
+                    "total_cost": solution.kpis.get("total_cost", 0),
+                    "external_tasks": solution.kpis.get("external_task_count", 0),
+                },
+            )
+        )
+        return solution
+
+
+class ExperimentRepairAgent:
+    name = "RepairAgent"
+
+    def build_non_regression_baseline(self, solution: ScheduleSolution, tasks: list, instance: Instance, config: ProblemConfig, trace: list) -> ScheduleSolution:
+        baseline = convert_problem2_to_container_baseline(solution, tasks, instance, config)
+        trace.append(
+            AgentStepResult(
+                self.name,
+                "ok",
+                "Built a problem-3 non-regression baseline from the problem-2 schedule.",
+                {
+                    "baseline_cost": baseline.kpis.get("total_cost", 0),
+                    "container_tasks": count_container_tasks(baseline),
+                },
+            )
+        )
+        return baseline
+
+    def choose_problem3_solution(self, candidate: ScheduleSolution, baseline: ScheduleSolution, trace: list) -> ScheduleSolution:
+        chosen = choose_lower_cost_solution(candidate, baseline)
+        trace.append(
+            AgentStepResult(
+                self.name,
+                "ok",
+                "Selected the lower-cost problem-3 solution, preserving the pure CP-SAT candidate for comparison.",
+                {
+                    "candidate_solver": candidate.solver,
+                    "candidate_cost": candidate.kpis.get("total_cost", 0),
+                    "baseline_cost": baseline.kpis.get("total_cost", 0),
+                    "selected_solver": chosen.solver,
+                },
+            )
+        )
+        return chosen
+
+
+class ConstraintAuditAgent:
+    name = "ConstraintAuditAgent"
+
+    def audit_tasks(self, label: str, tasks: list, config: ProblemConfig, trace: list) -> Dict[str, Any]:
+        audit = audit_tasks(tasks, config)
+        trace.append(AgentStepResult(self.name, "ok" if not audit["violations"] else "warning", f"Audited {label} generated tasks.", audit))
+        return audit
+
+    def audit_solution(self, label: str, solution: ScheduleSolution, tasks: list, config: ProblemConfig, trace: list) -> Dict[str, Any]:
+        audit = audit_solution(solution, tasks, config)
+        trace.append(AgentStepResult(self.name, "ok" if not audit["violations"] else "warning", f"Audited {label} schedule solution.", audit))
+        return audit
+
+
+class ExperimentExplanationAgent:
+    name = "ExplanationAgent"
+
+    def build_summary(self, **kwargs) -> Dict[str, Any]:
+        summary = build_summary(**kwargs)
+        kwargs["agent_trace"].append(
+            AgentStepResult(
+                self.name,
+                "ok",
+                "Built experiment summary, KPI comparison and report-ready explanation.",
+                {
+                    "summary_sections": list(summary.keys()),
+                    "visual_outputs": len(summary["outputs"].get("visual_outputs", [])),
+                },
+            )
+        )
+        summary["agent_trace"] = serialize_agent_trace(kwargs["agent_trace"])
+        return summary
 
 
 def load_d_dataset(data_dir: Path) -> DDataset:
@@ -389,6 +664,7 @@ def assignments_to_result_table(
 
 
 def build_summary(
+    experiment_config: ExperimentConfig,
     dataset: DDataset,
     result1: pd.DataFrame,
     result2: pd.DataFrame,
@@ -398,11 +674,16 @@ def build_summary(
     tasks_p3: int,
     solution_p2: ScheduleSolution,
     solution_p3: ScheduleSolution,
+    candidate_p3: ScheduleSolution,
+    baseline_p3: ScheduleSolution,
     sensitivity: pd.DataFrame,
     visual_outputs: list,
+    audit_report: Dict[str, Any],
+    agent_trace: list,
+    weight_grid: list,
 ) -> Dict[str, Any]:
     focus = {}
-    for route in FOCUS_ROUTES:
+    for route in experiment_config.focus_routes:
         focus[route] = {
             "daily_forecast": int(result1.loc[result1["线路编码"] == route, "货量"].sum()),
             "ten_min_rows": int((result2["线路编码"] == route).sum()),
@@ -411,6 +692,15 @@ def build_summary(
         }
 
     return {
+        "experiment": {
+            "name": experiment_config.name,
+            "forecast_model": experiment_config.forecast_model,
+            "task_generation_strategy": experiment_config.task_generation_strategy,
+            "solver_strategy": experiment_config.solver_strategy,
+            "target_date": experiment_config.target_date,
+            "base_date": experiment_config.base_date,
+            "prefer_cpsat": experiment_config.prefer_cpsat,
+        },
         "data": {
             "routes": int(dataset.routes["线路编码"].nunique()),
             "fleets": int(dataset.fleets["车队编码"].nunique()),
@@ -427,6 +717,7 @@ def build_summary(
             "result_table_4_rows": int(len(result4)),
             "sensitivity_rows": int(len(sensitivity)),
             "visual_outputs": visual_outputs,
+            "constraint_audit": "constraint_audit.json",
         },
         "problem2": {
             "task_count": tasks_p2,
@@ -445,9 +736,26 @@ def build_summary(
             "paper_baseline": PAPER_BASELINES["problem3"],
             "warnings": solution_p3.warnings,
             "container_task_count": count_container_tasks(solution_p3),
+            "pure_cpsat_candidate": {
+                "solver": candidate_p3.solver,
+                "status": candidate_p3.status,
+                "total_cost": candidate_p3.kpis.get("total_cost", 0),
+                "own_vehicle_turnover": candidate_p3.kpis.get("own_vehicle_turnover", 0),
+                "container_task_count": count_container_tasks(candidate_p3),
+            },
+            "non_regression_baseline": {
+                "solver": baseline_p3.solver,
+                "status": baseline_p3.status,
+                "total_cost": baseline_p3.kpis.get("total_cost", 0),
+                "own_vehicle_turnover": baseline_p3.kpis.get("own_vehicle_turnover", 0),
+                "container_task_count": count_container_tasks(baseline_p3),
+            },
         },
         "focus_routes": focus,
         "sensitivity": summarize_sensitivity(sensitivity),
+        "constraint_audit": summarize_constraint_audit(audit_report),
+        "weight_grid_search": weight_grid,
+        "reproduction_status": build_reproduction_status(solution_p2, solution_p3),
     }
 
 
@@ -456,6 +764,12 @@ def render_report(summary: Dict[str, Any]) -> str:
     p3 = summary["problem3"]
     lines = [
         "# D题真实数据第一批实验报告",
+        "",
+        "## 实验配置",
+        f"- 实验名称：{summary['experiment']['name']}",
+        f"- 预测模型：{summary['experiment']['forecast_model']}",
+        f"- 任务生成：{summary['experiment']['task_generation_strategy']}",
+        f"- 求解策略：{summary['experiment']['solver_strategy']}",
         "",
         "## 数据概览",
         f"- 线路数：{summary['data']['routes']}",
@@ -505,9 +819,36 @@ def render_report(summary: Dict[str, Any]) -> str:
         f"- 最大滞留场景：{sensitivity['max_stranded_scenario']}，滞留 {sensitivity['max_stranded_volume']:.0f}"
     )
     lines.append("")
+    lines.append("## 约束审计")
+    audit = summary["constraint_audit"]
+    lines.append(f"- 审计状态：{audit['status']}")
+    lines.append(f"- 违规数量：{audit['violation_count']}")
+    lines.append(f"- 警告数量：{audit['warning_count']}")
+    lines.append("")
+    lines.append("## 复现程度")
+    reproduction = summary["reproduction_status"]
+    lines.append(f"- 当前结论：{reproduction['level']}")
+    for item in reproduction["notes"]:
+        lines.append(f"- {item}")
+    lines.append("")
     lines.append("## 说明")
     lines.append("- 本批实验使用可解释统计预测基线，非 LSTM-MLP。")
     lines.append("- 若求解器显示 heuristic，表示 CP-SAT 未可用或未返回可行分配，已自动启发式兜底。")
+    return "\n".join(lines)
+
+
+def render_constraint_audit(audit_report: Dict[str, Any]) -> str:
+    lines = ["# 约束审计报告", ""]
+    for section, audit in audit_report.items():
+        lines.append(f"## {section}")
+        lines.append(f"- 检查对象数量：{audit.get('checked_count', 0)}")
+        lines.append(f"- 违规数量：{len(audit.get('violations', []))}")
+        lines.append(f"- 警告数量：{len(audit.get('warnings', []))}")
+        for violation in audit.get("violations", [])[:20]:
+            lines.append(f"- 违规：{violation}")
+        for warning in audit.get("warnings", [])[:20]:
+            lines.append(f"- 警告：{warning}")
+        lines.append("")
     return "\n".join(lines)
 
 
@@ -655,6 +996,132 @@ def run_sensitivity_analysis(
             else:
                 frame[f"{column}_relative_change"] = frame[column] / base_value - 1.0
     return frame
+
+
+def audit_tasks(tasks: list, config: ProblemConfig) -> Dict[str, Any]:
+    violations = []
+    warnings = []
+    for task in tasks:
+        if task.volume <= 0:
+            violations.append(f"{task.id}: non-positive volume {task.volume}")
+        if task.volume > config.vehicle_capacity:
+            violations.append(f"{task.id}: volume {task.volume} exceeds vehicle capacity {config.vehicle_capacity}")
+        if task.stop_count > config.max_stops:
+            violations.append(f"{task.id}: stop count {task.stop_count} exceeds max stops {config.max_stops}")
+        if task.earliest_minute > task.latest_minute:
+            violations.append(f"{task.id}: infeasible time window")
+        if task.source == "tail_milk_run" and config.milk_run_pairs:
+            destinations = task.destinations
+            for left_idx, left in enumerate(destinations):
+                for right in destinations[left_idx + 1 :]:
+                    if tuple(sorted((left, right))) not in config.milk_run_pairs:
+                        violations.append(f"{task.id}: incompatible milk-run pair {left}, {right}")
+    return {"checked_count": len(tasks), "violations": violations, "warnings": warnings}
+
+
+def audit_solution(solution: ScheduleSolution, tasks: list, config: ProblemConfig) -> Dict[str, Any]:
+    task_by_id = {task.id: task for task in tasks}
+    violations = []
+    warnings = []
+    assigned_task_ids = {assignment.task_id for assignment in solution.assignments}
+    if len(assigned_task_ids) != len(tasks):
+        violations.append(f"assigned unique tasks {len(assigned_task_ids)} != generated tasks {len(tasks)}")
+    by_vehicle: Dict[str, list] = {}
+    for assignment in solution.assignments:
+        task = task_by_id.get(assignment.task_id)
+        if task is None:
+            violations.append(f"{assignment.task_id}: assignment references unknown task")
+            continue
+        if assignment.start_minute > task.latest_minute:
+            violations.append(f"{assignment.task_id}: starts after latest dispatch")
+        if assignment.volume > config.container_capacity and assignment.use_container:
+            violations.append(f"{assignment.task_id}: container task exceeds container capacity")
+        if assignment.use_container and assignment.is_external:
+            violations.append(f"{assignment.task_id}: external carrier uses container")
+        if not assignment.is_external:
+            by_vehicle.setdefault(assignment.vehicle_id, []).append(assignment)
+    for vehicle_id, assignments in by_vehicle.items():
+        sorted_assignments = sorted(assignments, key=lambda item: item.start_minute)
+        for current, nxt in zip(sorted_assignments, sorted_assignments[1:]):
+            if current.end_minute > nxt.start_minute:
+                violations.append(f"{vehicle_id}: overlap between {current.task_id} and {nxt.task_id}")
+    if solution.status not in {"OPTIMAL", "FEASIBLE", "FEASIBLE_BASELINE"}:
+        warnings.append(f"solver status is {solution.status}")
+    return {"checked_count": len(solution.assignments), "violations": violations, "warnings": warnings}
+
+
+def summarize_constraint_audit(audit_report: Dict[str, Any]) -> Dict[str, Any]:
+    violations = sum(len(audit.get("violations", [])) for audit in audit_report.values())
+    warnings = sum(len(audit.get("warnings", [])) for audit in audit_report.values())
+    return {
+        "status": "pass" if violations == 0 else "fail",
+        "violation_count": violations,
+        "warning_count": warnings,
+    }
+
+
+def serialize_agent_trace(trace: list) -> list:
+    serialized = []
+    for item in trace:
+        if isinstance(item, AgentStepResult):
+            serialized.append(
+                {
+                    "agent": item.agent,
+                    "status": item.status,
+                    "summary": item.summary,
+                    "metrics": item.metrics,
+                }
+            )
+        else:
+            serialized.append(item)
+    return serialized
+
+
+def run_weight_grid_search(solution_p2: ScheduleSolution, candidate_p3: ScheduleSolution, baseline_p3: ScheduleSolution) -> list:
+    """Score existing candidate solutions under a small objective grid.
+
+    This is intentionally lightweight: it does not rerun CP-SAT repeatedly, but
+    it exposes how weight choices would rank the available feasible solutions.
+    """
+    candidates = {
+        "problem2_cpsat": solution_p2,
+        "problem3_cpsat_candidate": candidate_p3,
+        "problem3_non_regression_baseline": baseline_p3,
+    }
+    grid = [
+        {"cost": 1.0, "turnover": 0.5, "fill_rate": 0.2},
+        {"cost": 1.5, "turnover": 0.3, "fill_rate": 0.1},
+        {"cost": 0.8, "turnover": 0.8, "fill_rate": 0.2},
+        {"cost": 1.0, "turnover": 0.4, "fill_rate": 0.5},
+    ]
+    results = []
+    for weights in grid:
+        scored = []
+        for name, solution in candidates.items():
+            kpis = solution.kpis
+            score = (
+                weights["cost"] * kpis.get("total_cost", 0)
+                - weights["turnover"] * 1000 * kpis.get("own_vehicle_turnover", 0)
+                + weights["fill_rate"] * kpis.get("unused_capacity", 0)
+            )
+            scored.append({"candidate": name, "score": score})
+        best = min(scored, key=lambda item: item["score"])
+        results.append({"weights": weights, "best_candidate": best["candidate"], "scores": scored})
+    return results
+
+
+def build_reproduction_status(solution_p2: ScheduleSolution, solution_p3: ScheduleSolution) -> Dict[str, Any]:
+    p2_cost_gap = solution_p2.kpis.get("total_cost", 0) - PAPER_BASELINES["problem2"]["total_cost"]
+    p3_cost_gap = solution_p3.kpis.get("total_cost", 0) - PAPER_BASELINES["problem3"]["total_cost"]
+    return {
+        "level": "engineering_baseline_not_exact_reproduction",
+        "notes": [
+            f"问题2成本较论文参考高 {p2_cost_gap:.0f}，周转率为 {solution_p2.kpis.get('own_vehicle_turnover', 0):.2f}。",
+            f"问题3成本较论文参考高 {p3_cost_gap:.0f}，当前使用 {solution_p3.solver}。",
+            "预测模型为统计基线，尚未复刻论文 LSTM-MLP。",
+            "问题3保留纯 CP-SAT 候选与非退化基线对比，避免把修复方案误报为纯优化结果。",
+        ],
+    }
 
 
 def simulate_fixed_schedule(

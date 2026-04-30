@@ -62,6 +62,13 @@ $env:PYTHONPATH="src"
 D:\miniconda3\python.exe -m shorthaul_agent.cli run-experiment --data-dir D题 --output-dir outputs
 ```
 
+也可以使用实验配置文件运行：
+
+```powershell
+$env:PYTHONPATH="src"
+D:\miniconda3\python.exe -m shorthaul_agent.cli run-experiment --config experiments/d_problem_baseline.yaml --data-dir D题 --output-dir outputs
+```
+
 当前已跑通一版真实数据实验，输出位于 `outputs/`：
 
 - `result_table_1.xlsx`
@@ -70,6 +77,8 @@ D:\miniconda3\python.exe -m shorthaul_agent.cli run-experiment --data-dir D题 -
 - `result_table_4.xlsx`
 - `experiment_summary.json`
 - `experiment_report.md`
+- `constraint_audit.json`
+- `constraint_audit.md`
 - `sensitivity_analysis.csv`
 - `sensitivity_analysis.xlsx`
 - `focus_routes_report.md`
@@ -82,6 +91,8 @@ D:\miniconda3\python.exe -m shorthaul_agent.cli run-experiment --data-dir D题 -
 实验链路还包含问题 4 的固定方案敏感性分析：在问题 3 调度方案不重新优化的前提下，模拟总量偏差 `-30%/-10%/+10%/+30%` 与时间漂移 `-60/-30/+30/+60/+90` 分钟，输出滞留量、按时装载率、自有车周转率和车辆均包裹变化。
 
 问题 3 额外加入非退化保护：标准容器是可选技术，因此问题 2 的可行调度可以转换为问题 3 的无退化基线；若 CP-SAT 在限定时间内给出的容器方案成本更高，系统会采用该基线并对小于 800 件的自有车任务标记可使用容器。
+
+`experiment_summary.json` 会记录完整多 Agent 执行轨迹，包括数据接入、预测、任务生成、约束审计、求解、修复和解释阶段。当前复现状态标记为 `engineering_baseline_not_exact_reproduction`：系统已完成工程基线复现，但尚未完整复刻论文 LSTM-MLP 预测和权重搜索结果。
 
 本机 Codex 进程创建新 conda 环境时被 conda 包缓存写权限拦截；但 `D:\miniconda3\python.exe` 的 base 环境已包含 `pandas/numpy/openpyxl/ortools`，因此当前真实实验先基于 base Python 完成。手动终端创建环境时建议：
 
@@ -107,6 +118,10 @@ uvicorn shorthaul_agent.api:app --host 127.0.0.1 --port 8000
 - `GET /health`
 - `POST /schedule`：传入自然语言需求和结构化实例 JSON，返回 Agent 调度结果
 - `POST /experiments/d-problem`：触发 D 题真实数据实验
+- `POST /experiments/from-config`：按实验配置文件触发实验
+- `GET /experiments`：列出实验配置
+- `GET /reports/{report_name}`：读取实验报告或审计文件
+- `POST /validate`：验证已有实验输出
 
 ## 质量检查
 
@@ -167,6 +182,21 @@ flowchart LR
     C --> G["异常修复 Agent"]
     G --> E
 ```
+
+真实 D 题实验目前采用更细的多 Agent trace：
+
+```mermaid
+flowchart LR
+    A["DataIngestionAgent"] --> B["ForecastAgent"]
+    B --> C["DemandGenerationAgent"]
+    C --> D["ConstraintAuditAgent"]
+    D --> E["SolverAgent"]
+    E --> F["RepairAgent"]
+    F --> G["ConstraintAuditAgent"]
+    G --> H["ExplanationAgent"]
+```
+
+每个阶段的状态、摘要和关键指标都会写入 `outputs/experiment_summary.json` 的 `agent_trace` 字段。
 
 ## 路线完成情况
 

@@ -17,9 +17,11 @@ def main() -> None:
         parser.add_argument("command")
         parser.add_argument("--data-dir", default="D题", help="Path to the D-problem folder.")
         parser.add_argument("--output-dir", default="outputs", help="Directory for generated result tables and reports.")
+        parser.add_argument("--config", default=None, help="Optional experiment YAML/JSON config path.")
         parser.add_argument("--no-cpsat", action="store_true", help="Force deterministic heuristic solver.")
         args = parser.parse_args()
-        summary = run_experiment(Path(args.data_dir), Path(args.output_dir), prefer_cpsat=not args.no_cpsat)
+        config_path = Path(args.config) if args.config else None
+        summary = run_experiment(Path(args.data_dir), Path(args.output_dir), prefer_cpsat=not args.no_cpsat, config_path=config_path)
         print(f"Experiment complete. Result table 3 rows: {summary['outputs']['result_table_3_rows']}")
         print(f"Problem 2 solver: {summary['problem2']['solver']} / {summary['problem2']['status']}")
         print(f"Problem 3 solver: {summary['problem3']['solver']} / {summary['problem3']['status']}")

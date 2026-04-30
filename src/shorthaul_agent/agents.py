@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Optional
+
 from shorthaul_agent.models import AgentRunResult, Instance, ParsedRequirement, ProblemConfig, ScheduleSolution, ValidationReport
 from shorthaul_agent.parsing import RequirementParser
 from shorthaul_agent.solvers import CpSatScheduler, HeuristicScheduler, generate_dispatch_tasks
@@ -32,7 +34,7 @@ class ConstraintCheckerAgent:
 class SolverAgent:
     name = "求解器调用 Agent"
 
-    def run(self, instance: Instance, config: ProblemConfig) -> tuple[list, ScheduleSolution]:
+    def run(self, instance: Instance, config: ProblemConfig) -> tuple:
         tasks = generate_dispatch_tasks(instance, config)
         if config.prefer_cpsat and CpSatScheduler.available():
             solution = CpSatScheduler().solve(instance, tasks, config)
@@ -46,7 +48,7 @@ class SolverAgent:
 class RepairAgent:
     name = "异常修复 Agent"
 
-    def run(self, validation: ValidationReport, config: ProblemConfig) -> tuple[ProblemConfig, list[str]]:
+    def run(self, validation: ValidationReport, config: ProblemConfig) -> tuple:
         actions: list[str] = []
         repaired = config
         if validation.errors:
@@ -93,7 +95,7 @@ class ExplanationAgent:
 class DispatchOrchestrator:
     """Coordinate parser, checker, solver, explanation, and repair agents."""
 
-    def __init__(self, base_config: ProblemConfig | None = None) -> None:
+    def __init__(self, base_config: Optional[ProblemConfig] = None) -> None:
         self.base_config = base_config or ProblemConfig()
         self.parser_agent = RequirementParserAgent()
         self.checker_agent = ConstraintCheckerAgent()

@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Optional
 
 from shorthaul_agent.models import Assignment, DispatchTask, Fleet, Instance, ProblemConfig, ScheduleSolution, Vehicle
 
 
-@dataclass(slots=True)
+@dataclass
 class _VehicleState:
     vehicle: Vehicle
     available_minute: int = 0
@@ -101,7 +102,7 @@ class HeuristicScheduler:
         task: DispatchTask,
         candidates: list[_VehicleState],
         config: ProblemConfig,
-    ) -> _VehicleState | None:
+    ) -> Optional[_VehicleState]:
         feasible: list[tuple[int, int, _VehicleState]] = []
         for state in candidates:
             start = max(task.earliest_minute, state.available_minute)
@@ -161,7 +162,7 @@ def calculate_kpis(
         for assignment in assignments
         if not assignment.is_external
     }
-    fixed_cost = sum(fleets[fleet_id].fixed_cost for _, fleet_id in used_own_vehicles)
+    fixed_cost = sum(fleet.vehicle_count * fleet.fixed_cost for fleet in instance.fleets)
 
     own_variable_cost = 0.0
     external_cost = 0.0
@@ -171,13 +172,13 @@ def calculate_kpis(
         task = tasks_by_id[assignment.task_id]
         total_volume += assignment.volume
         available_capacity += config.container_capacity if assignment.use_container else config.vehicle_capacity
-        base_cost = task.variable_cost + fleets[assignment.fleet_id].variable_cost_per_trip
         if assignment.is_external:
-            external_cost += base_cost * 1.35
+            external_cost += task.external_cost
         else:
-            own_variable_cost += base_cost
+            own_variable_cost += task.variable_cost + fleets[assignment.fleet_id].variable_cost_per_trip
 
     total_cost = fixed_cost + own_variable_cost + external_cost
+    vehicle_denominator = total_own_vehicle_count + external_task_count
     return {
         "task_count": float(len(tasks)),
         "assigned_task_count": float(len(assignments)),
@@ -186,7 +187,7 @@ def calculate_kpis(
         "used_own_vehicle_count": float(len(own_vehicle_ids)),
         "total_own_vehicle_count": float(total_own_vehicle_count),
         "own_vehicle_turnover": own_task_count / total_own_vehicle_count if total_own_vehicle_count else 0.0,
-        "avg_packages_per_vehicle": total_volume / len(assignments) if assignments else 0.0,
+        "avg_packages_per_vehicle": total_volume / vehicle_denominator if vehicle_denominator else 0.0,
         "fill_rate": total_volume / available_capacity if available_capacity else 0.0,
         "unused_capacity": float(max(available_capacity - total_volume, 0)),
         "fixed_cost": float(fixed_cost),

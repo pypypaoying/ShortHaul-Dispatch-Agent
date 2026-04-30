@@ -53,6 +53,36 @@ $env:SHORT_HAUL_LLM_MODEL="你的模型名"
 
 没有 API Key 时，系统使用内置规则解析器，仍可完成样例调度。
 
+## 真实 D 题实验
+
+数据集放在 `D题/` 后，可以直接运行第一批复现实验：
+
+```powershell
+$env:PYTHONPATH="src"
+D:\miniconda3\python.exe -m shorthaul_agent.cli run-experiment --data-dir D题 --output-dir outputs
+```
+
+当前已跑通一版真实数据实验，输出位于 `outputs/`：
+
+- `result_table_1.xlsx`
+- `result_table_2.xlsx`
+- `result_table_3.xlsx`
+- `result_table_4.xlsx`
+- `experiment_summary.json`
+- `experiment_report.md`
+
+实验使用可解释统计预测基线：日度预测采用“预知货量 × 历史校正因子”，10 分钟拆解采用历史到达比例。调度阶段优先调用 OR-Tools CP-SAT，失败时自动启发式兜底。
+
+本机 Codex 进程创建新 conda 环境时被 conda 包缓存写权限拦截；但 `D:\miniconda3\python.exe` 的 base 环境已包含 `pandas/numpy/openpyxl/ortools`，因此当前真实实验先基于 base Python 完成。手动终端创建环境时建议：
+
+```powershell
+$env:CONDA_OVERRIDE_CUDA='0'
+conda create -n shorthaul-agent-exp python=3.11 -y
+conda activate shorthaul-agent-exp
+python -m pip install -U pip
+python -m pip install -e ".[solver,llm,dev,experiment]"
+```
+
 ## 项目结构
 
 ```text
@@ -102,4 +132,3 @@ flowchart LR
 3. 增加鲁棒性仿真模块，复现论文第 8 章的总量偏差与时间漂移敏感性分析。
 4. 增加 Web/API 层：FastAPI 服务、调度结果导出、甘特图和重点线路解释。
 5. 整理 GitHub Actions：运行烟测、单元测试和格式检查。
-

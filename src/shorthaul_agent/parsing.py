@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import os
 import re
-from typing import Any
+from typing import Any, Optional
 
 from shorthaul_agent.models import ParsedRequirement
 
@@ -19,7 +19,7 @@ class RequirementParser:
             return llm_result
         return self._rule_parse(text)
 
-    def _try_llm_parse(self, text: str) -> ParsedRequirement | None:
+    def _try_llm_parse(self, text: str) -> Optional[ParsedRequirement]:
         api_key = os.getenv("OPENAI_API_KEY")
         if not api_key:
             return None

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from itertools import combinations
+from typing import Optional
 
 from shorthaul_agent.models import DispatchTask, ForecastBucket, Instance, ProblemConfig, Route
 
@@ -96,6 +97,7 @@ def _task_from_route(
         travel_minutes=route.travel_minutes,
         fleet_id=route.fleet_id,
         variable_cost=route.variable_cost,
+        external_cost=route.external_cost or int(route.variable_cost * route.external_cost_multiplier),
         source=source,
     )
 
@@ -105,10 +107,12 @@ def _merge_tail_tasks(tasks: list[DispatchTask], group_index: int) -> DispatchTa
     route_ids: list[str] = []
     destinations: list[str] = []
     variable_cost = 0
+    external_cost = 0
     for task in tasks:
         route_ids.extend(task.route_ids)
         destinations.extend(task.destinations)
-        variable_cost += task.variable_cost
+        variable_cost = max(variable_cost, task.variable_cost)
+        external_cost = max(external_cost, task.external_cost)
 
     return DispatchTask(
         id=f"{first.origin}-{first.wave}#milk-run-{group_index}",
@@ -122,6 +126,7 @@ def _merge_tail_tasks(tasks: list[DispatchTask], group_index: int) -> DispatchTa
         travel_minutes=max(task.travel_minutes for task in tasks) + 10 * (len(tasks) - 1),
         fleet_id=first.fleet_id,
         variable_cost=variable_cost,
+        external_cost=external_cost,
         source="tail_milk_run" if len(tasks) > 1 else "tail_single",
     )
 
@@ -131,7 +136,7 @@ def _candidate_tail_sets(tasks: list[DispatchTask], config: ProblemConfig) -> li
     candidates: list[tuple[int, ...]] = [(idx,) for idx in indices]
     for size in range(2, config.max_stops + 1):
         for combo in combinations(indices, size):
-            if sum(tasks[idx].volume for idx in combo) <= config.vehicle_capacity:
+            if sum(tasks[idx].volume for idx in combo) <= config.vehicle_capacity and _destinations_compatible(combo, tasks, config):
                 latest = min(tasks[idx].latest_minute for idx in combo)
                 earliest = max(tasks[idx].earliest_minute for idx in combo)
                 if earliest <= latest:
@@ -139,7 +144,7 @@ def _candidate_tail_sets(tasks: list[DispatchTask], config: ProblemConfig) -> li
     return candidates
 
 
-def _try_cpsat_tail_cover(tasks: list[DispatchTask], config: ProblemConfig) -> list[DispatchTask] | None:
+def _try_cpsat_tail_cover(tasks: list[DispatchTask], config: ProblemConfig) -> Optional[list[DispatchTask]]:
     try:
         from ortools.sat.python import cp_model
     except ImportError:
@@ -185,7 +190,9 @@ def _greedy_tail_cover(tasks: list[DispatchTask], config: ProblemConfig) -> list
                 combined_volume = current_volume + candidate.volume
                 combined_earliest = max(max(task.earliest_minute for task in current), candidate.earliest_minute)
                 combined_latest = min(latest, candidate.latest_minute)
-                if combined_volume <= config.vehicle_capacity and combined_earliest <= combined_latest:
+                combo_tasks = current + [candidate]
+                compatible = _destinations_compatible(tuple(range(len(combo_tasks))), combo_tasks, config)
+                if combined_volume <= config.vehicle_capacity and combined_earliest <= combined_latest and compatible:
                     slack = config.vehicle_capacity - combined_volume
                     if best_slack is None or slack < best_slack:
                         best_index = idx
@@ -196,3 +203,14 @@ def _greedy_tail_cover(tasks: list[DispatchTask], config: ProblemConfig) -> list
         groups.append(current)
 
     return [_merge_tail_tasks(group, idx + 1) for idx, group in enumerate(groups)]
+
+
+def _destinations_compatible(combo: tuple[int, ...], tasks: list[DispatchTask], config: ProblemConfig) -> bool:
+    if not config.milk_run_pairs or len(combo) <= 1:
+        return True
+    destinations = [tasks[idx].destinations[0] for idx in combo]
+    for left_idx, left in enumerate(destinations):
+        for right in destinations[left_idx + 1 :]:
+            if tuple(sorted((left, right))) not in config.milk_run_pairs:
+                return False
+    return True

@@ -110,14 +110,13 @@ class CpSatScheduler:
         cost_terms = []
         own_task_terms = []
         for vehicle_idx, vehicle in enumerate(vehicles):
-            cost_terms.append(vehicle.fixed_cost * vehicle_used_vars[vehicle_idx][1])
             for task_idx, task in enumerate(tasks):
                 assign = assignment_vars[(task_idx, vehicle_idx)]
                 cost_terms.append((task.variable_cost + vehicle.variable_cost_per_trip) * assign)
                 own_task_terms.append(assign)
 
         for task_idx, task in enumerate(tasks):
-            cost_terms.append(int((task.variable_cost + fleets[task.fleet_id].variable_cost_per_trip) * 1.35) * external_vars[task_idx])
+            cost_terms.append(task.external_cost * external_vars[task_idx])
 
         weights = config.objective_weights
         cost_weight = int(weights.cost * 100)

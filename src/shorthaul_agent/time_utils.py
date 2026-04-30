@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import re
 from datetime import datetime
+from typing import Union
 
 
-def parse_time_to_minutes(value: str | int) -> int:
+def parse_time_to_minutes(value: Union[str, int]) -> int:
     """Parse HH:MM, HHMM, or a datetime-like string into minutes after day start."""
     if isinstance(value, int):
         return value
@@ -45,6 +46,6 @@ def format_minutes(minutes: int) -> str:
     return f"{suffix}{hour:02d}:{minute:02d}"
 
 
-def normalize_minute(value: str | int) -> int:
+def normalize_minute(value: Union[str, int]) -> int:
     """Alias used by JSON loaders."""
     return parse_time_to_minutes(value)

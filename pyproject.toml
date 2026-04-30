@@ -7,14 +7,15 @@ name = "shorthaul-dispatch-agent"
 version = "0.1.0"
 description = "LLM + constraint programming multi-agent scheduler for short-haul transportation."
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.9"
 authors = [{ name = "Mathematical Modeling Team" }]
-dependencies = []
+dependencies = ["pandas>=1.5", "numpy>=1.23", "openpyxl>=3.1"]
 
 [project.optional-dependencies]
 solver = ["ortools>=9.10"]
 llm = ["openai>=1.0"]
 dev = ["pytest>=8.0"]
+experiment = ["matplotlib>=3.7", "seaborn>=0.13"]
 
 [project.scripts]
 shorthaul-agent = "shorthaul_agent.cli:main"

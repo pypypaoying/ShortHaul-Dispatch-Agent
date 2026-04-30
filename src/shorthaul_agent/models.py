@@ -3,19 +3,19 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
-from typing import Any
+from typing import Any, Optional
 
 from shorthaul_agent.time_utils import normalize_minute
 
 
-@dataclass(slots=True)
+@dataclass
 class ObjectiveWeights:
     cost: float = 1.0
     turnover: float = 0.5
     fill_rate: float = 0.2
 
 
-@dataclass(slots=True)
+@dataclass
 class ProblemConfig:
     vehicle_capacity: int = 1000
     container_capacity: int = 800
@@ -26,8 +26,9 @@ class ProblemConfig:
     set_cover_tail_threshold: int = 80
     solver_time_limit_seconds: float = 10.0
     objective_weights: ObjectiveWeights = field(default_factory=ObjectiveWeights)
+    milk_run_pairs: set = field(default_factory=set)
 
-    def merged(self, overrides: dict[str, Any] | None) -> "ProblemConfig":
+    def merged(self, overrides: Optional[dict[str, Any]]) -> "ProblemConfig":
         if not overrides:
             return self
         data = asdict(self)
@@ -41,7 +42,7 @@ class ProblemConfig:
         return ProblemConfig(**data)
 
 
-@dataclass(slots=True)
+@dataclass
 class Route:
     id: str
     origin: str
@@ -51,6 +52,7 @@ class Route:
     travel_minutes: int
     fleet_id: str
     variable_cost: int = 120
+    external_cost: int = 0
     external_cost_multiplier: float = 1.35
 
     @classmethod
@@ -64,7 +66,7 @@ class Route:
         return (self.origin, self.wave)
 
 
-@dataclass(slots=True)
+@dataclass
 class Fleet:
     id: str
     vehicle_count: int
@@ -80,7 +82,7 @@ class Fleet:
         return cls(**data)
 
 
-@dataclass(slots=True)
+@dataclass
 class ForecastBucket:
     route_id: str
     minute: int
@@ -94,7 +96,7 @@ class ForecastBucket:
         return cls(**normalized)
 
 
-@dataclass(slots=True)
+@dataclass
 class Instance:
     id: str
     date: str
@@ -116,10 +118,10 @@ class Instance:
         return asdict(self)
 
 
-@dataclass(slots=True)
+@dataclass
 class ParsedRequirement:
     raw_text: str
-    target_date: str | None = None
+    target_date: Optional[str] = None
     route_focus: list[str] = field(default_factory=list)
     config_overrides: dict[str, Any] = field(default_factory=dict)
     hard_constraints: list[str] = field(default_factory=list)
@@ -127,7 +129,7 @@ class ParsedRequirement:
     warnings: list[str] = field(default_factory=list)
 
 
-@dataclass(slots=True)
+@dataclass
 class ValidationReport:
     errors: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
@@ -137,7 +139,7 @@ class ValidationReport:
         return not self.errors
 
 
-@dataclass(slots=True)
+@dataclass
 class DispatchTask:
     id: str
     route_ids: list[str]
@@ -150,6 +152,7 @@ class DispatchTask:
     travel_minutes: int
     fleet_id: str
     variable_cost: int
+    external_cost: int
     source: str
 
     @property
@@ -157,7 +160,7 @@ class DispatchTask:
         return len(self.destinations)
 
 
-@dataclass(slots=True)
+@dataclass
 class Vehicle:
     id: str
     fleet_id: str
@@ -170,7 +173,7 @@ class Vehicle:
     container_unload_minutes: int = 20
 
 
-@dataclass(slots=True)
+@dataclass
 class Assignment:
     task_id: str
     route_ids: list[str]
@@ -183,7 +186,7 @@ class Assignment:
     is_external: bool
 
 
-@dataclass(slots=True)
+@dataclass
 class ScheduleSolution:
     status: str
     objective: float
@@ -196,7 +199,7 @@ class ScheduleSolution:
         return asdict(self)
 
 
-@dataclass(slots=True)
+@dataclass
 class AgentRunResult:
     requirement: ParsedRequirement
     validation: ValidationReport

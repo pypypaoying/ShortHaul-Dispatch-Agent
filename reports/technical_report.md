@@ -217,3 +217,38 @@ minimize
 ## 10. 结论
 
 本项目已经完成从论文模型到工程 MVP 的第一步转化。系统保留了论文的核心方法：预测货量转运输任务、尾货串点、约束规划车辆调度、容器决策和多目标优化。同时采用多 Agent 架构，把自然语言理解、约束校验、可验证求解、方案解释和异常修复拆分为清晰模块，为后续扩展到真实数据、GitHub 发布和完整技术报告奠定了基础。
+
+## 11. 第一批真实数据实验进展
+
+已接入 `D题/附件1-5.xlsx` 与 `D题/结果表1-4.xlsx` 模板，并新增一键实验命令：
+
+```powershell
+$env:PYTHONPATH="src"
+D:\miniconda3\python.exe -m shorthaul_agent.cli run-experiment --data-dir D题 --output-dir outputs
+```
+
+当前实验输出：
+
+- `outputs/result_table_1.xlsx`
+- `outputs/result_table_2.xlsx`
+- `outputs/result_table_3.xlsx`
+- `outputs/result_table_4.xlsx`
+- `outputs/experiment_summary.json`
+- `outputs/experiment_report.md`
+
+第一批结果校验：
+
+- 结果表 1：280 行，货量无缺失；
+- 结果表 2：10080 行，包裹量无缺失；
+- 结果表 3：576 行；
+- 结果表 4：576 行；
+- 两条重点线路 `场地3 - 站点83 - 0600` 和 `场地3 - 站点83 - 1400` 均有预测与调度结果。
+
+当前 CP-SAT 实验 KPI：
+
+| 项目 | 求解状态 | 总成本 | 自有车周转率 | 车辆均包裹 | 外部承运数 |
+| --- | --- | ---: | ---: | ---: | ---: |
+| 问题 2 | FEASIBLE | 69202 | 3.14 | 1479.90 | 231 |
+| 问题 3 | FEASIBLE | 73202 | 3.18 | 1501.92 | 226 |
+
+与论文参考值仍有差距，主要原因是当前预测模型为统计基线，且 CP-SAT 目标函数仍偏向提升自有车承运任务数。下一批实验应校准多目标权重、外部成本惩罚和容器任务生成逻辑，使问题三体现更明显的成本下降。

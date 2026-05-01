@@ -318,9 +318,11 @@ This stage is designed to answer two questions:
 
 The generated artifacts are `comparison_table.xlsx`, `comparison_summary.json`, `comparison_report.md`, `cost_turnover_comparison.png`, and `robustness_comparison.png` under `outputs_baseline_comparison/`.
 
-# Performance Improvement: Saving-Aware Task Generation And Repair
+# Performance Improvement: Task Generation Search And Repair
 
-The current optimization phase improves task generation itself while keeping the D-problem data adapter, statistical forecast model, and hard constraints unchanged. The new performance config `experiments/d_problem_performance.yaml` sets `tail_cover_strategy: saving_aware`: tail-load set cover still minimizes the number of generated tail tasks first, then breaks ties by preferring milk-run candidates that reduce external-carrier exposure, with travel-time and capacity-slack penalties.
+The current optimization phase improves task generation itself while keeping the D-problem data adapter, statistical forecast model, and hard constraints unchanged. The performance config `experiments/d_problem_performance.yaml` now sets `tail_cover_strategy: cost_aware`: tail-load set cover still minimizes the number of generated tail tasks first, then breaks ties by preferring candidates with lower external-carrier and route-cost exposure.
+
+The generator also supports `tail_candidate_strategy: beam`. The beam mode preserves all singleton tail tasks for coverage, then expands only the highest-scoring multi-stop candidates under the active tail-cover objective. This gives the project a controlled search knob when exhaustive candidate enumeration becomes too expensive or noisy.
 
 The solver layer remains a CP-SAT portfolio over seeds `[0, 7, 19]`. Each seed receives the full configured time limit, and the solver agent selects the feasible schedule with the lowest measured total cost. A deterministic repair pass then converts or swaps external-carrier tasks into feasible self-owned vehicle slots when the replacement reduces measured total cost.
 
@@ -330,8 +332,17 @@ Latest validated comparison:
 | --- | ---: | ---: | ---: | ---: |
 | Paper reference | 56776 | 47106 | 2.49 / 2.62 | n/a |
 | Legacy pipeline | 71806 | 71806 | 3.1636 | 228 |
-| Current multi-agent saving-aware generation + repair | 67715 | 67715 | 3.1636 | 228 |
+| Current multi-agent cost-aware generation + repair | 67816 | 67816 | 3.1636 | 228 |
 | Heuristic fallback + repair | 69736 | 69736 | 3.0364 | 242 |
-| Pure CP-SAT problem 3 candidate | n/a | 67921 | 3.1545 | n/a |
+| Pure CP-SAT problem 3 candidate | n/a | 67896 | 3.1545 | n/a |
 
-This improves the current multi-agent architecture from traceable reproduction to measurable optimization progress: cost decreases by `4091` against the legacy pipeline and by `267` against the previous portfolio-and-repair stage while preserving constraint audit status `pass` and the 12-step multi-agent execution trace. The result is still above the paper reference, so the next optimization target is deeper task-generation search and forecast calibration rather than another presentation-layer change.
+Task-generation search results:
+
+| Search Run | Problem 2 Cost | Problem 3 Cost | External Tasks | Constraint Status |
+| --- | ---: | ---: | ---: | --- |
+| Short grid best: exhaustive_cost_aware | 67475 | 67475 | 225 | pass |
+| Short grid best: beam_saving_aware | 67475 | 67475 | 225 | pass |
+| Full standalone portfolio: exhaustive_cost_aware | 67672 | 67528 | 227 / 226 | pass |
+| Formal comparison run: exhaustive_cost_aware | 67816 | 67816 | 228 | pass |
+
+This keeps the current multi-agent architecture in measurable optimization territory: the formal comparison run decreases cost by `3990` against the legacy pipeline while preserving constraint audit status `pass` and the 12-step multi-agent execution trace. The best standalone portfolio run reached `67672` for problem 2 and `67528` for problem 3, but CP-SAT multi-worker search still has run-to-run variance. The next optimization target is to reduce that variance with deterministic solver settings or a task-generation portfolio that records and reuses the best audited configuration.

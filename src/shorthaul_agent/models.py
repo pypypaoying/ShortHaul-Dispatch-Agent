@@ -25,6 +25,8 @@ class ProblemConfig:
     prefer_cpsat: bool = True
     set_cover_tail_threshold: int = 80
     tail_cover_strategy: str = "min_count"
+    tail_candidate_strategy: str = "exhaustive"
+    tail_beam_width: int = 12
     solver_time_limit_seconds: float = 10.0
     cpsat_search_seed: int = 0
     cpsat_search_seeds: tuple[int, ...] = (0,)

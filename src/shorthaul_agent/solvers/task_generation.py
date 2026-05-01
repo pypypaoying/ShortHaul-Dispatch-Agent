@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from itertools import combinations
 from typing import Optional
 
 from shorthaul_agent.models import DispatchTask, ForecastBucket, Instance, ProblemConfig, Route
@@ -132,16 +131,56 @@ def _merge_tail_tasks(tasks: list[DispatchTask], group_index: int) -> DispatchTa
 
 
 def _candidate_tail_sets(tasks: list[DispatchTask], config: ProblemConfig) -> list[tuple[int, ...]]:
+    if config.tail_candidate_strategy == "beam":
+        return _beam_candidate_tail_sets(tasks, config)
+    return _exhaustive_candidate_tail_sets(tasks, config)
+
+
+def _exhaustive_candidate_tail_sets(tasks: list[DispatchTask], config: ProblemConfig) -> list[tuple[int, ...]]:
+    from itertools import combinations
+
     indices = range(len(tasks))
     candidates: list[tuple[int, ...]] = [(idx,) for idx in indices]
     for size in range(2, config.max_stops + 1):
         for combo in combinations(indices, size):
-            if sum(tasks[idx].volume for idx in combo) <= config.vehicle_capacity and _destinations_compatible(combo, tasks, config):
-                latest = min(tasks[idx].latest_minute for idx in combo)
-                earliest = max(tasks[idx].earliest_minute for idx in combo)
-                if earliest <= latest:
-                    candidates.append(combo)
+            if _tail_combo_feasible(combo, tasks, config):
+                candidates.append(combo)
     return candidates
+
+
+def _beam_candidate_tail_sets(tasks: list[DispatchTask], config: ProblemConfig) -> list[tuple[int, ...]]:
+    singles = [(idx,) for idx in range(len(tasks))]
+    candidates: list[tuple[int, ...]] = list(singles)
+    frontier = list(singles)
+    seen = set(singles)
+    beam_limit = max(len(tasks), int(config.tail_beam_width) * max(len(tasks), 1))
+
+    for _size in range(2, config.max_stops + 1):
+        expanded = []
+        for combo in frontier:
+            for next_idx in range(combo[-1] + 1, len(tasks)):
+                new_combo = tuple(sorted((*combo, next_idx)))
+                if new_combo in seen:
+                    continue
+                seen.add(new_combo)
+                if _tail_combo_feasible(new_combo, tasks, config):
+                    expanded.append(new_combo)
+        if not expanded:
+            break
+        expanded.sort(key=lambda combo: _tail_cover_weight(combo, tasks, config))
+        frontier = expanded[:beam_limit]
+        candidates.extend(frontier)
+    return candidates
+
+
+def _tail_combo_feasible(combo: tuple[int, ...], tasks: list[DispatchTask], config: ProblemConfig) -> bool:
+    if sum(tasks[idx].volume for idx in combo) > config.vehicle_capacity:
+        return False
+    if not _destinations_compatible(combo, tasks, config):
+        return False
+    latest = min(tasks[idx].latest_minute for idx in combo)
+    earliest = max(tasks[idx].earliest_minute for idx in combo)
+    return earliest <= latest
 
 
 def _try_cpsat_tail_cover(tasks: list[DispatchTask], config: ProblemConfig) -> Optional[list[DispatchTask]]:

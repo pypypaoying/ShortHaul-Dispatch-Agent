@@ -39,6 +39,10 @@ class ExperimentConfig:
     prefer_cpsat: bool = True
     solver_time_limit_seconds: float = 20.0
     tail_cover_strategy: str = "min_count"
+    tail_candidate_strategy: str = "exhaustive"
+    tail_beam_width: int = 12
+    tail_cover_strategy_grid: list = None
+    tail_candidate_strategy_grid: list = None
     cpsat_search_seeds: list = None
     cpsat_num_workers: int = 8
     run_weight_grid: bool = True
@@ -49,6 +53,10 @@ class ExperimentConfig:
             self.cpsat_search_seeds = [0]
         if self.focus_routes is None:
             self.focus_routes = list(FOCUS_ROUTES)
+        if self.tail_cover_strategy_grid is None:
+            self.tail_cover_strategy_grid = ["min_count", "saving_aware", "cost_aware", "duration_aware", "fill_aware"]
+        if self.tail_candidate_strategy_grid is None:
+            self.tail_candidate_strategy_grid = [self.tail_candidate_strategy]
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "ExperimentConfig":
@@ -81,6 +89,63 @@ def run_experiment(data_dir: Path, output_dir: Path, prefer_cpsat: bool = True, 
     experiment_config.output_dir = str(output_dir)
     experiment_config.prefer_cpsat = prefer_cpsat
     return run_configured_experiment(experiment_config)
+
+
+def run_task_generation_tuning(
+    data_dir: Path,
+    output_dir: Path,
+    config_path: Optional[Path] = None,
+    prefer_cpsat: bool = True,
+    solver_time_limit_seconds: Optional[float] = None,
+    cpsat_search_seeds: Optional[list[int]] = None,
+    tail_cover_strategies: Optional[list[str]] = None,
+    tail_candidate_strategies: Optional[list[str]] = None,
+) -> Dict[str, Any]:
+    base_config = load_experiment_config(config_path) if config_path else ExperimentConfig()
+    output_dir.mkdir(parents=True, exist_ok=True)
+    runs_dir = output_dir / "runs"
+    runs_dir.mkdir(parents=True, exist_ok=True)
+
+    cover_grid = tail_cover_strategies or list(base_config.tail_cover_strategy_grid)
+    candidate_grid = tail_candidate_strategies or list(base_config.tail_candidate_strategy_grid)
+    records = []
+    for candidate_strategy in candidate_grid:
+        for cover_strategy in cover_grid:
+            run_name = f"{candidate_strategy}_{cover_strategy}"
+            variant = replace(
+                base_config,
+                name=f"{base_config.name}_{run_name}",
+                data_dir=str(data_dir),
+                output_dir=str(runs_dir / run_name),
+                prefer_cpsat=prefer_cpsat,
+                tail_cover_strategy=cover_strategy,
+                tail_candidate_strategy=candidate_strategy,
+            )
+            if solver_time_limit_seconds is not None:
+                variant.solver_time_limit_seconds = float(solver_time_limit_seconds)
+            if cpsat_search_seeds is not None:
+                variant.cpsat_search_seeds = [int(seed) for seed in cpsat_search_seeds]
+            summary = run_configured_experiment(variant)
+            records.append(task_generation_tuning_record(run_name, candidate_strategy, cover_strategy, summary))
+
+    table = pd.DataFrame(records).sort_values(["problem2_total_cost", "problem3_total_cost", "problem2_task_count"])
+    table.to_csv(output_dir / "task_generation_grid.csv", index=False, encoding="utf-8-sig")
+    table.to_excel(output_dir / "task_generation_grid.xlsx", index=False)
+    best = table.iloc[0].to_dict() if not table.empty else {}
+    summary = {
+        "runs_dir": str(runs_dir),
+        "row_count": int(len(table)),
+        "prefer_cpsat": prefer_cpsat,
+        "solver_time_limit_seconds": solver_time_limit_seconds if solver_time_limit_seconds is not None else base_config.solver_time_limit_seconds,
+        "cpsat_search_seeds": cpsat_search_seeds if cpsat_search_seeds is not None else base_config.cpsat_search_seeds,
+        "tail_cover_strategy_grid": cover_grid,
+        "tail_candidate_strategy_grid": candidate_grid,
+        "best": best,
+        "records": records,
+    }
+    write_json(output_dir / "task_generation_grid_summary.json", summary)
+    (output_dir / "task_generation_grid_report.md").write_text(render_task_generation_tuning_report(summary, table), encoding="utf-8")
+    return summary
 
 
 def load_experiment_config(config_path: Path) -> ExperimentConfig:
@@ -214,6 +279,83 @@ def run_configured_experiment(experiment_config: ExperimentConfig) -> Dict[str, 
     return summary
 
 
+def task_generation_tuning_record(run_name: str, candidate_strategy: str, cover_strategy: str, summary: Dict[str, Any]) -> Dict[str, Any]:
+    p2 = summary["problem2"]
+    p3 = summary["problem3"]
+    p2_kpis = p2.get("kpis", {})
+    p3_kpis = p3.get("kpis", {})
+    pure_p3 = p3.get("pure_cpsat_candidate", {})
+    return {
+        "run_name": run_name,
+        "tail_candidate_strategy": candidate_strategy,
+        "tail_cover_strategy": cover_strategy,
+        "problem2_total_cost": float(p2_kpis.get("total_cost", 0)),
+        "problem3_total_cost": float(p3_kpis.get("total_cost", 0)),
+        "problem2_task_count": int(p2.get("task_count", 0)),
+        "problem3_task_count": int(p3.get("task_count", 0)),
+        "problem2_turnover": float(p2_kpis.get("own_vehicle_turnover", 0)),
+        "problem3_turnover": float(p3_kpis.get("own_vehicle_turnover", 0)),
+        "problem2_external_tasks": float(p2_kpis.get("external_task_count", 0)),
+        "problem3_external_tasks": float(p3_kpis.get("external_task_count", 0)),
+        "problem3_pure_cpsat_cost": float(pure_p3.get("total_cost", 0)),
+        "constraint_status": summary.get("constraint_audit", {}).get("status", "unknown"),
+        "agent_trace_steps": len(summary.get("agent_trace", [])),
+    }
+
+
+def render_task_generation_tuning_report(summary: Dict[str, Any], table: pd.DataFrame) -> str:
+    lines = [
+        "# Task Generation Tuning Report",
+        "",
+        "## Search Space",
+        f"- Tail cover strategies: {summary['tail_cover_strategy_grid']}",
+        f"- Tail candidate strategies: {summary['tail_candidate_strategy_grid']}",
+        f"- Prefer CP-SAT: {summary['prefer_cpsat']}",
+        f"- Solver time limit seconds: {summary['solver_time_limit_seconds']}",
+        f"- CP-SAT seeds: {summary['cpsat_search_seeds']}",
+        "",
+        "## Best Run",
+    ]
+    best = summary.get("best", {})
+    if best:
+        lines.extend(
+            [
+                f"- Run: `{best.get('run_name')}`",
+                f"- Problem 2 cost: {best.get('problem2_total_cost')}",
+                f"- Problem 3 cost: {best.get('problem3_total_cost')}",
+                f"- Problem 2 tasks: {best.get('problem2_task_count')}",
+                f"- Constraint status: {best.get('constraint_status')}",
+                "",
+            ]
+        )
+    if not table.empty:
+        lines.append("## Grid Results")
+        columns = [
+            "run_name",
+            "problem2_total_cost",
+            "problem3_total_cost",
+            "problem2_task_count",
+            "problem2_turnover",
+            "problem2_external_tasks",
+            "constraint_status",
+        ]
+        lines.append(records_to_markdown(table[columns].to_dict(orient="records")))
+    return "\n".join(lines)
+
+
+def records_to_markdown(records: list[Dict[str, Any]]) -> str:
+    if not records:
+        return ""
+    columns = list(records[0].keys())
+    lines = [
+        "| " + " | ".join(columns) + " |",
+        "| " + " | ".join(["---"] * len(columns)) + " |",
+    ]
+    for record in records:
+        lines.append("| " + " | ".join(str(record.get(column, "")) for column in columns) + " |")
+    return "\n".join(lines)
+
+
 class DProblemDataAgent:
     name = "DataIngestionAgent"
 
@@ -280,6 +422,8 @@ class DemandGenerationAgent:
             "prefer_cpsat": experiment_config.prefer_cpsat,
             "solver_time_limit_seconds": experiment_config.solver_time_limit_seconds,
             "tail_cover_strategy": experiment_config.tail_cover_strategy,
+            "tail_candidate_strategy": experiment_config.tail_candidate_strategy,
+            "tail_beam_width": int(experiment_config.tail_beam_width),
             "cpsat_search_seeds": tuple(int(seed) for seed in experiment_config.cpsat_search_seeds),
             "cpsat_num_workers": int(experiment_config.cpsat_num_workers),
             "milk_run_pairs": milk_run_pairs,
@@ -295,6 +439,9 @@ class DemandGenerationAgent:
                 "Generated full-load, tail-load and milk-run tasks for problems 2 and 3.",
                 {
                     "task_generation_strategy": experiment_config.task_generation_strategy,
+                    "tail_cover_strategy": experiment_config.tail_cover_strategy,
+                    "tail_candidate_strategy": experiment_config.tail_candidate_strategy,
+                    "tail_beam_width": int(experiment_config.tail_beam_width),
                     "problem2_tasks": len(tasks_p2),
                     "problem3_tasks": len(tasks_p3),
                     "milk_run_pairs": len(milk_run_pairs),
@@ -939,6 +1086,8 @@ def build_summary(
             "base_date": experiment_config.base_date,
             "prefer_cpsat": experiment_config.prefer_cpsat,
             "tail_cover_strategy": experiment_config.tail_cover_strategy,
+            "tail_candidate_strategy": experiment_config.tail_candidate_strategy,
+            "tail_beam_width": int(experiment_config.tail_beam_width),
             "cpsat_search_seeds": experiment_config.cpsat_search_seeds,
             "cpsat_num_workers": experiment_config.cpsat_num_workers,
         },

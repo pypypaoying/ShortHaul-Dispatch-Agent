@@ -15,7 +15,7 @@ from shorthaul_agent.experiment import (  # noqa: E402
     polish_external_assignments,
 )
 from shorthaul_agent.models import Assignment, DispatchTask, Fleet, Instance, ProblemConfig, ScheduleSolution  # noqa: E402
-from shorthaul_agent.solvers.task_generation import _tail_cover_weight, consolidate_tail_tasks  # noqa: E402
+from shorthaul_agent.solvers.task_generation import _candidate_tail_sets, _tail_cover_weight, consolidate_tail_tasks  # noqa: E402
 
 
 def make_tail_task(task_id: str, destination: str, volume: int, external_cost: int) -> DispatchTask:
@@ -66,7 +66,9 @@ def test_performance_config_loads_cpsat_portfolio_defaults():
     assert config.name == "d_problem_performance_portfolio"
     assert config.cpsat_search_seeds == [0, 7, 19]
     assert config.cpsat_num_workers == 8
-    assert config.tail_cover_strategy == "saving_aware"
+    assert config.tail_cover_strategy == "cost_aware"
+    assert config.tail_candidate_strategy == "exhaustive"
+    assert config.tail_candidate_strategy_grid == ["exhaustive", "beam"]
 
 
 def test_simple_yaml_parses_numeric_lists():
@@ -127,6 +129,26 @@ def test_tail_cover_uses_saving_strategy_for_candidate_selection():
 
     assert frozenset({"route-a", "route-b"}) in route_sets
     assert frozenset({"route-c"}) in route_sets
+
+
+def test_tail_candidate_beam_preserves_singletons_and_prunes_search():
+    tasks = [
+        make_tail_task("a", "d1", 100, 500),
+        make_tail_task("b", "d2", 120, 400),
+        make_tail_task("c", "d3", 140, 300),
+        make_tail_task("d", "d4", 160, 200),
+        make_tail_task("e", "d5", 180, 100),
+        make_tail_task("f", "d6", 200, 90),
+    ]
+    exhaustive = ProblemConfig(vehicle_capacity=700, max_stops=3, tail_candidate_strategy="exhaustive")
+    beam = ProblemConfig(vehicle_capacity=700, max_stops=3, tail_candidate_strategy="beam", tail_beam_width=1)
+
+    exhaustive_candidates = _candidate_tail_sets(tasks, exhaustive)
+    beam_candidates = _candidate_tail_sets(tasks, beam)
+
+    assert len(beam_candidates) < len(exhaustive_candidates)
+    assert {(idx,) for idx in range(len(tasks))}.issubset(set(beam_candidates))
+    assert all(sum(tasks[idx].volume for idx in combo) <= beam.vehicle_capacity for combo in beam_candidates)
 
 
 def test_task_audit_catches_capacity_violation():

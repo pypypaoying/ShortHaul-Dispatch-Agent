@@ -229,7 +229,7 @@ The comparison answers whether the new multi-agent architecture improves the pro
 The performance configuration now attacks two levers while keeping the same D-problem data adapter, statistical forecast, and hard constraints:
 
 - Task generation: `tail_cover_strategy: cost_aware` keeps the set-cover objective of minimizing tail tasks, but breaks ties by preferring lower external-carrier and route-cost exposure. The generator also supports `tail_candidate_strategy: beam` for cost-aware candidate pruning.
-- Solver layer: the solver call uses a deterministic CP-SAT portfolio plus deterministic external-carrier repair. It runs seeds `[0, 7, 19]` with one worker and deterministic-time limits, selects the feasible solution with the lowest measured total cost, then swaps high-saving external tasks into feasible self-owned vehicle slots when doing so reduces true cost.
+- Solver layer: the solver call uses a deterministic CP-SAT portfolio plus deterministic external-carrier repair. It runs seeds `[0, 7, 19]` with one worker and deterministic-time limits, selects the feasible solution with the lowest measured total cost, then evaluates both swap-only and blocker-relocation repair paths before choosing the lowest true-cost schedule.
 
 ```powershell
 $env:PYTHONPATH="src"
@@ -237,11 +237,11 @@ D:\miniconda3\python.exe -m shorthaul_agent.cli run-experiment --config experime
 ```
 
 Latest validated comparison run:
-- Problem 2 total cost: `67759`, own-vehicle turnover: `3.1636`, external tasks: `228`
-- Problem 3 total cost: `67537`, own-vehicle turnover: `3.1818`, external tasks: `226`
-- Pure CP-SAT problem 3 candidate: `67537`; it beats the non-regression container baseline at `67759`
+- Problem 2 total cost: `67701`, own-vehicle turnover: `3.1727`, external tasks: `227`
+- Problem 3 total cost: `67547`, own-vehicle turnover: `3.1818`, external tasks: `226`
+- Pure CP-SAT problem 3 candidate: `67547`; it beats the non-regression container baseline at `67930`
 - Legacy pipeline comparison cost: `71806`
-- Improvement vs legacy: `-4047` for problem 2 and `-4269` for problem 3
+- Improvement vs legacy: `-4105` for problem 2 and `-4259` for problem 3
 - Best full standalone portfolio run during task-generation tuning: problem 2 `67672`, problem 3 `67528`
 
 Task-generation grid search:

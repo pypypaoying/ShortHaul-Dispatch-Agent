@@ -322,3 +322,78 @@ def test_external_repair_swaps_higher_saving_external_task():
     assert "high" in owned_ids
     assert "low" in external_ids
     assert repaired.kpis["total_cost"] < solution.kpis["total_cost"]
+
+
+def test_external_repair_relocates_blocker_before_externalizing_owned_task():
+    instance = Instance(
+        id="unit",
+        date="2024-12-16",
+        routes=[],
+        fleets=[Fleet(id="fleet", vehicle_count=2, fixed_cost=0, variable_cost_per_trip=10)],
+        forecast=[],
+    )
+    blocker = DispatchTask(
+        id="blocker",
+        route_ids=["r1"],
+        origin="o",
+        destinations=["d1"],
+        wave="0600",
+        volume=1000,
+        earliest_minute=0,
+        latest_minute=200,
+        travel_minutes=5,
+        fleet_id="fleet",
+        variable_cost=10,
+        external_cost=30,
+        source="full_load",
+    )
+    occupied = DispatchTask(
+        id="occupied",
+        route_ids=["r2"],
+        origin="o",
+        destinations=["d2"],
+        wave="0600",
+        volume=1000,
+        earliest_minute=0,
+        latest_minute=0,
+        travel_minutes=5,
+        fleet_id="fleet",
+        variable_cost=10,
+        external_cost=30,
+        source="full_load",
+    )
+    high = DispatchTask(
+        id="high",
+        route_ids=["r3"],
+        origin="o",
+        destinations=["d3"],
+        wave="0600",
+        volume=1000,
+        earliest_minute=0,
+        latest_minute=0,
+        travel_minutes=5,
+        fleet_id="fleet",
+        variable_cost=10,
+        external_cost=200,
+        source="full_load",
+    )
+    solution = ScheduleSolution(
+        status="FEASIBLE",
+        objective=0,
+        assignments=[
+            Assignment("blocker", ["r1"], "Own_fleet_1", "fleet", 0, 100, 1000, False, False),
+            Assignment("occupied", ["r2"], "Own_fleet_2", "fleet", 0, 100, 1000, False, False),
+            Assignment("high", ["r3"], "External_high", "fleet", 0, 100, 1000, False, True),
+        ],
+        kpis={"total_cost": 240.0},
+        solver="unit",
+    )
+
+    repaired = polish_external_assignments(instance, [blocker, occupied, high], solution, ProblemConfig())
+
+    by_task = {assignment.task_id: assignment for assignment in repaired.assignments}
+    assert repaired.kpis["external_task_count"] == 0
+    assert by_task["high"].vehicle_id == "Own_fleet_1"
+    assert by_task["blocker"].is_external is False
+    assert by_task["blocker"].start_minute == 100
+    assert repaired.kpis["total_cost"] < solution.kpis["total_cost"]

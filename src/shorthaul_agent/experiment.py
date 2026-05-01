@@ -828,6 +828,27 @@ def solve_cpsat_portfolio(instance: Instance, tasks: list, config: ProblemConfig
 
 
 def polish_external_assignments(instance: Instance, tasks: list, solution: ScheduleSolution, config: ProblemConfig) -> ScheduleSolution:
+    swap_only = _polish_external_assignments_variant(instance, tasks, solution, config, allow_relocation=False)
+    relocation = _polish_external_assignments_variant(instance, tasks, solution, config, allow_relocation=True)
+    return min((solution, swap_only, relocation), key=repair_solution_rank)
+
+
+def repair_solution_rank(solution: ScheduleSolution) -> tuple:
+    kpis = solution.kpis or {}
+    return (
+        kpis.get("total_cost", float("inf")),
+        kpis.get("external_task_count", float("inf")),
+        -kpis.get("own_vehicle_turnover", 0),
+    )
+
+
+def _polish_external_assignments_variant(
+    instance: Instance,
+    tasks: list,
+    solution: ScheduleSolution,
+    config: ProblemConfig,
+    allow_relocation: bool,
+) -> ScheduleSolution:
     """Greedily replace external tasks with feasible self-owned vehicle gaps.
 
     CP-SAT often returns good feasible schedules before proving optimality. This
@@ -900,10 +921,70 @@ def polish_external_assignments(instance: Instance, tasks: list, solution: Sched
         schedules[best_vehicle].append(repaired)
         converted.append(repaired)
 
+    relocated_in: list[Assignment] = []
+    relocated_blockers: list[Assignment] = []
+    still_external_after_relocation: list[Assignment] = []
+    if allow_relocation:
+        for assignment in sorted(still_external, key=saving, reverse=True):
+            task = tasks_by_id[assignment.task_id]
+            fleet = fleets[task.fleet_id]
+            incoming_saving = saving(assignment)
+            if incoming_saving <= 0:
+                still_external_after_relocation.append(assignment)
+                continue
+            use_container = should_use_container_for_repair(task, fleet, config)
+            duration = repaired_task_duration(task, fleet, use_container)
+            best_move = None
+            for vehicle_id, fleet_id in vehicle_to_fleet.items():
+                if fleet_id != task.fleet_id:
+                    continue
+                for blocker in list(schedules[vehicle_id]):
+                    schedule_without_blocker = [item for item in schedules[vehicle_id] if item.task_id != blocker.task_id]
+                    incoming_start = earliest_gap_start(schedule_without_blocker, task.earliest_minute, task.latest_minute, duration)
+                    if incoming_start is None:
+                        continue
+                    incoming_end = incoming_start + duration
+                    repaired_incoming = Assignment(
+                        task_id=assignment.task_id,
+                        route_ids=list(assignment.route_ids),
+                        vehicle_id=vehicle_id,
+                        fleet_id=task.fleet_id,
+                        start_minute=incoming_start,
+                        end_minute=incoming_end,
+                        volume=assignment.volume,
+                        use_container=use_container,
+                        is_external=False,
+                    )
+                    relocation = best_owned_relocation(
+                        blocker,
+                        tasks_by_id,
+                        fleets,
+                        vehicle_to_fleet,
+                        schedules,
+                        reserved_by_vehicle={vehicle_id: schedule_without_blocker + [repaired_incoming]},
+                        config=config,
+                    )
+                    if relocation is None:
+                        continue
+                    ranking = (-incoming_saving, incoming_end, relocation.end_minute, vehicle_id, blocker.task_id)
+                    if best_move is None or ranking < best_move[0]:
+                        best_move = (ranking, vehicle_id, blocker, repaired_incoming, relocation)
+            if best_move is None:
+                still_external_after_relocation.append(assignment)
+                continue
+            _, vehicle_id, blocker, repaired_incoming, relocated_blocker = best_move
+            schedules[vehicle_id].remove(blocker)
+            schedules[vehicle_id].append(repaired_incoming)
+            schedules[relocated_blocker.vehicle_id].append(relocated_blocker)
+            relocated_in.append(repaired_incoming)
+            relocated_blockers.append(relocated_blocker)
+    else:
+        still_external_after_relocation = list(still_external)
+
     swapped_in: list[Assignment] = []
     swapped_out: list[Assignment] = []
     remaining_external: list[Assignment] = []
-    for assignment in sorted(still_external, key=saving, reverse=True):
+    for assignment in sorted(still_external_after_relocation, key=saving, reverse=True):
         task = tasks_by_id[assignment.task_id]
         fleet = fleets[task.fleet_id]
         incoming_saving = saving(assignment)
@@ -957,7 +1038,7 @@ def polish_external_assignments(instance: Instance, tasks: list, solution: Sched
         swapped_in.append(repaired)
         swapped_out.append(externalized)
 
-    if not converted and not swapped_in:
+    if not converted and not relocated_in and not swapped_in:
         return solution
 
     repaired_assignments = [item for schedule in schedules.values() for item in schedule] + remaining_external + swapped_out
@@ -971,11 +1052,55 @@ def polish_external_assignments(instance: Instance, tasks: list, solution: Sched
         kpis=repaired_kpis,
         warnings=list(solution.warnings)
         + [
-            f"External repair converted {len(converted)} tasks and swapped {len(swapped_in)} high-saving external tasks into self-owned vehicles."
+            (
+                f"External repair converted {len(converted)} tasks, relocated {len(relocated_blockers)} blocker tasks, "
+                f"and swapped {len(swapped_in)} high-saving external tasks into self-owned vehicles."
+            )
         ],
         solver=f"{solution.solver}+external-repair",
     )
     return repaired
+
+
+def best_owned_relocation(
+    assignment: Assignment,
+    tasks_by_id: Dict[str, Any],
+    fleets: Dict[str, Fleet],
+    vehicle_to_fleet: Dict[str, str],
+    schedules: Dict[str, list[Assignment]],
+    reserved_by_vehicle: Dict[str, list[Assignment]],
+    config: ProblemConfig,
+) -> Optional[Assignment]:
+    task = tasks_by_id[assignment.task_id]
+    fleet = fleets[task.fleet_id]
+    use_container = should_use_container_for_repair(task, fleet, config)
+    duration = repaired_task_duration(task, fleet, use_container)
+    best = None
+    for vehicle_id, fleet_id in vehicle_to_fleet.items():
+        if fleet_id != task.fleet_id:
+            continue
+        base_schedule = reserved_by_vehicle.get(vehicle_id, schedules[vehicle_id])
+        candidate_start = earliest_gap_start(base_schedule, task.earliest_minute, task.latest_minute, duration)
+        if candidate_start is None:
+            continue
+        candidate_end = candidate_start + duration
+        ranking = (candidate_end, vehicle_id)
+        if best is None or ranking < best[0]:
+            best = (
+                ranking,
+                Assignment(
+                    task_id=assignment.task_id,
+                    route_ids=list(assignment.route_ids),
+                    vehicle_id=vehicle_id,
+                    fleet_id=task.fleet_id,
+                    start_minute=candidate_start,
+                    end_minute=candidate_end,
+                    volume=assignment.volume,
+                    use_container=use_container,
+                    is_external=False,
+                ),
+            )
+    return best[1] if best else None
 
 
 def earliest_gap_start(assignments: list[Assignment], earliest: int, latest: int, duration: int) -> Optional[int]:

@@ -324,7 +324,7 @@ The current optimization phase improves task generation itself while keeping the
 
 The generator also supports `tail_candidate_strategy: beam`. The beam mode preserves all singleton tail tasks for coverage, then expands only the highest-scoring multi-stop candidates under the active tail-cover objective. This gives the project a controlled search knob when exhaustive candidate enumeration becomes too expensive or noisy.
 
-The solver layer is now a deterministic CP-SAT portfolio over seeds `[0, 7, 19]`. The performance configuration uses one CP-SAT worker and deterministic-time limits, and the solver agent selects the feasible schedule with the lowest measured total cost. A deterministic repair pass then converts or swaps external-carrier tasks into feasible self-owned vehicle slots when the replacement reduces measured total cost.
+The solver layer is now a deterministic CP-SAT portfolio over seeds `[0, 7, 19]`. The performance configuration uses one CP-SAT worker and deterministic-time limits, and the solver agent selects the feasible schedule with the lowest measured total cost. The repair pass evaluates both swap-only and blocker-relocation repair paths, then keeps the lowest true-cost feasible schedule. The relocation path can move a lower-value self-owned blocker into another feasible gap before assigning a high-saving external task to the released self-owned slot.
 
 Formal experiments can reuse an audited task-generation tuning artifact by setting `task_generation_portfolio_artifact` to a prior `task_generation_grid_summary.json`. The experiment then records the source artifact and selected generation strategy in `experiment_summary.json`, which makes the tuning-to-benchmark handoff explicit.
 
@@ -334,9 +334,9 @@ Latest validated comparison:
 | --- | ---: | ---: | ---: | ---: |
 | Paper reference | 56776 | 47106 | 2.49 / 2.62 | n/a |
 | Legacy pipeline | 71806 | 71806 | 3.1636 | 228 |
-| Current multi-agent deterministic cost-aware generation + repair | 67759 | 67537 | 3.1636 / 3.1818 | 228 / 226 |
-| Heuristic fallback + repair | 69736 | 69736 | 3.0364 | 242 |
-| Pure CP-SAT problem 3 candidate | n/a | 67537 | 3.1818 | n/a |
+| Current multi-agent deterministic cost-aware generation + repair | 67701 | 67547 | 3.1727 / 3.1818 | 227 / 226 |
+| Heuristic fallback + repair | 69577 | 69577 | 3.0545 | 240 |
+| Pure CP-SAT problem 3 candidate | n/a | 67547 | 3.1818 | n/a |
 
 Task-generation search results:
 
@@ -345,6 +345,6 @@ Task-generation search results:
 | Short grid best: exhaustive_cost_aware | 67475 | 67475 | 225 | pass |
 | Short grid best: beam_saving_aware | 67475 | 67475 | 225 | pass |
 | Full standalone portfolio: exhaustive_cost_aware | 67672 | 67528 | 227 / 226 | pass |
-| Formal deterministic comparison: exhaustive_cost_aware | 67759 | 67537 | 228 / 226 | pass |
+| Formal deterministic comparison: exhaustive_cost_aware | 67701 | 67547 | 227 / 226 | pass |
 
-This keeps the current multi-agent architecture in measurable optimization territory: the formal comparison run decreases cost by `4047` for problem 2 and `4269` for problem 3 against the legacy pipeline while preserving constraint audit status `pass` and the 12-step multi-agent execution trace. The next optimization target is to reduce the remaining gap to the paper reference by improving forecast calibration and adding a stronger repair objective, rather than relying on thread-level solver variance.
+This keeps the current multi-agent architecture in measurable optimization territory: the formal comparison run decreases cost by `4105` for problem 2 and `4259` for problem 3 against the legacy pipeline while preserving constraint audit status `pass` and the 12-step multi-agent execution trace. The latest repair stage improved problem 2 by relocating one blocker task and reducing external tasks from 228 to 227. The next optimization target is to reduce the remaining gap to the paper reference by improving forecast calibration and adding stronger multi-task repair neighborhoods.

@@ -156,6 +156,8 @@ $env:WANDB_API_KEY="your-key-for-online-runs"
 
 When W&B is not installed or cannot authenticate, the experiment still finishes. The skip or failure reason is written to `experiment_summary.json` under `tracking`.
 
+For authenticated online runs, use `experiments/d_problem_wandb_online.yaml`. It is the same performance experiment with `wandb_mode: online`.
+
 ## API Showcase
 
 ```powershell

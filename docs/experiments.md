@@ -93,6 +93,8 @@ The tracked metrics include:
 
 Core output files are added as a W&B artifact when available. If `wandb` is not installed, the run continues and records a skipped tracking status in `experiment_summary.json`.
 
+For authenticated online logging, switch the config path to `experiments/d_problem_wandb_online.yaml`.
+
 ## Latest Known KPI Baseline
 
 | Scenario | Problem 2 Cost | Problem 2 Turnover | Problem 2 External Tasks | Problem 3 Cost | Problem 3 Turnover | Problem 3 External Tasks |

@@ -18,6 +18,7 @@ outputs_performance_stage/
 outputs_performance_stage_loadstart/
 outputs_task_generation_tuning*/
 wandb/
+wandb_tmp/
 *.wandb
 .worktrees/
 .env

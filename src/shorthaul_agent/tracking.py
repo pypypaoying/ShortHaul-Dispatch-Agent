@@ -31,9 +31,10 @@ def log_experiment_to_wandb(config: Any, summary: Dict[str, Any], output_dir: Pa
 
     run = None
     try:
+        run_name = getattr(config, "wandb_run_name", "") or default_wandb_run_name(config, output_dir)
         init_kwargs: Dict[str, Any] = {
             "project": getattr(config, "wandb_project", "shorthaul-dispatch-agent"),
-            "name": getattr(config, "wandb_run_name", "") or getattr(config, "name", "shorthaul-experiment"),
+            "name": run_name,
             "tags": list(getattr(config, "wandb_tags", []) or []),
             "config": wandb_config_from_summary(summary),
         }
@@ -153,8 +154,18 @@ def existing_artifact_files(output_dir: Path) -> list[Path]:
         "gantt_problem2.png",
         "gantt_problem3.png",
         "sensitivity_on_time.png",
+        "experiment_summary.json",
+        "experiment_report.md",
     ]
     return [output_dir / filename for filename in filenames if (output_dir / filename).exists()]
+
+
+def default_wandb_run_name(config: Any, output_dir: Path) -> str:
+    base_name = getattr(config, "name", "") or "shorthaul-experiment"
+    suffix = output_dir.name
+    if suffix and suffix not in {base_name, "outputs"}:
+        return f"{base_name}-{suffix}"
+    return base_name
 
 
 def safe_artifact_name(value: str) -> str:

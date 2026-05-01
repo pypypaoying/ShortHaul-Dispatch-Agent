@@ -17,6 +17,7 @@ outputs_baseline_comparison/
 outputs_performance_stage/
 outputs_performance_stage_loadstart/
 outputs_task_generation_tuning*/
+outputs_wandb*/
 wandb/
 wandb_tmp/
 *.wandb

@@ -99,7 +99,7 @@ For authenticated online logging, switch the config path to `experiments/d_probl
 
 | Scenario | Problem 2 Cost | Problem 2 Turnover | Problem 2 External Tasks | Problem 3 Cost | Problem 3 Turnover | Problem 3 External Tasks |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| Current multi-agent | 67701 | 3.1727 | 227 | 67547 | 3.1818 | 226 |
+| Current multi-agent | 67701 | 3.1727 | 227 | 67537 | 3.1818 | 226 |
 | Heuristic-only | 69577 | 3.0545 | 240 | 69577 | 3.0545 | 240 |
 | Legacy pipeline | 71806 | 3.1636 | 228 | 71806 | 3.1636 | 228 |
 | Paper reference | 56776 | 2.49 | n/a | 47106 | 2.62 | n/a |

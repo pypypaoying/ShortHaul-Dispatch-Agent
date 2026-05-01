@@ -15,6 +15,25 @@ from shorthaul_agent.experiment import (  # noqa: E402
     polish_external_assignments,
 )
 from shorthaul_agent.models import Assignment, DispatchTask, Fleet, Instance, ProblemConfig, ScheduleSolution  # noqa: E402
+from shorthaul_agent.solvers.task_generation import _tail_cover_weight, consolidate_tail_tasks  # noqa: E402
+
+
+def make_tail_task(task_id: str, destination: str, volume: int, external_cost: int) -> DispatchTask:
+    return DispatchTask(
+        id=task_id,
+        route_ids=[f"route-{task_id}"],
+        origin="site",
+        destinations=[destination],
+        wave="0600",
+        volume=volume,
+        earliest_minute=0,
+        latest_minute=600,
+        travel_minutes=30,
+        fleet_id="fleet",
+        variable_cost=100,
+        external_cost=external_cost,
+        source="tail",
+    )
 
 
 def test_normalize_route_code_standardizes_hyphen_spacing():
@@ -47,6 +66,7 @@ def test_performance_config_loads_cpsat_portfolio_defaults():
     assert config.name == "d_problem_performance_portfolio"
     assert config.cpsat_search_seeds == [0, 7, 19]
     assert config.cpsat_num_workers == 8
+    assert config.tail_cover_strategy == "saving_aware"
 
 
 def test_simple_yaml_parses_numeric_lists():
@@ -59,6 +79,54 @@ def test_problem_config_merges_cpsat_seed_lists():
     config = ProblemConfig().merged({"cpsat_search_seeds": [3, 5], "cpsat_num_workers": 1})
     assert config.cpsat_search_seeds == (3, 5)
     assert config.cpsat_num_workers == 1
+
+
+def test_tail_cover_saving_strategy_prefers_external_saving():
+    tasks = [
+        make_tail_task("a", "d1", 300, 500),
+        make_tail_task("b", "d2", 300, 400),
+        make_tail_task("c", "d3", 300, 100),
+    ]
+    config = ProblemConfig(tail_cover_strategy="saving_aware")
+
+    high_saving_pair = _tail_cover_weight((0, 1), tasks, config)
+    low_saving_pair = _tail_cover_weight((0, 2), tasks, config)
+
+    assert high_saving_pair < low_saving_pair
+
+
+def test_tail_cover_default_strategy_prefers_tighter_fill():
+    tasks = [
+        make_tail_task("a", "d1", 300, 500),
+        make_tail_task("b", "d2", 400, 400),
+        make_tail_task("c", "d3", 50, 100),
+    ]
+    config = ProblemConfig(vehicle_capacity=700)
+
+    tight_pair = _tail_cover_weight((0, 1), tasks, config)
+    loose_pair = _tail_cover_weight((0, 2), tasks, config)
+
+    assert tight_pair < loose_pair
+
+
+def test_tail_cover_uses_saving_strategy_for_candidate_selection():
+    tasks = [
+        make_tail_task("a", "d1", 300, 500),
+        make_tail_task("b", "d2", 300, 400),
+        make_tail_task("c", "d3", 300, 100),
+    ]
+    config = ProblemConfig(
+        vehicle_capacity=700,
+        max_stops=2,
+        set_cover_tail_threshold=10,
+        tail_cover_strategy="saving_aware",
+    )
+
+    consolidated = consolidate_tail_tasks(tasks, config)
+    route_sets = {frozenset(task.route_ids) for task in consolidated}
+
+    assert frozenset({"route-a", "route-b"}) in route_sets
+    assert frozenset({"route-c"}) in route_sets
 
 
 def test_task_audit_catches_capacity_violation():

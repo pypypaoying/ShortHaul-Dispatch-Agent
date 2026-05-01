@@ -318,9 +318,11 @@ This stage is designed to answer two questions:
 
 The generated artifacts are `comparison_table.xlsx`, `comparison_summary.json`, `comparison_report.md`, `cost_turnover_comparison.png`, and `robustness_comparison.png` under `outputs_baseline_comparison/`.
 
-# Performance Improvement: CP-SAT Portfolio And External Repair
+# Performance Improvement: Saving-Aware Task Generation And Repair
 
-The first optimization phase improves the solver layer without changing the D-problem data adapter, forecast model, task generation rules, or hard constraints. The new performance config `experiments/d_problem_performance.yaml` enables a CP-SAT portfolio over seeds `[0, 7, 19]`. Each seed receives the full configured time limit, and the solver agent selects the feasible schedule with the lowest measured total cost. A deterministic repair pass then converts or swaps external-carrier tasks into feasible self-owned vehicle slots when the replacement reduces measured total cost.
+The current optimization phase improves task generation itself while keeping the D-problem data adapter, statistical forecast model, and hard constraints unchanged. The new performance config `experiments/d_problem_performance.yaml` sets `tail_cover_strategy: saving_aware`: tail-load set cover still minimizes the number of generated tail tasks first, then breaks ties by preferring milk-run candidates that reduce external-carrier exposure, with travel-time and capacity-slack penalties.
+
+The solver layer remains a CP-SAT portfolio over seeds `[0, 7, 19]`. Each seed receives the full configured time limit, and the solver agent selects the feasible schedule with the lowest measured total cost. A deterministic repair pass then converts or swaps external-carrier tasks into feasible self-owned vehicle slots when the replacement reduces measured total cost.
 
 Latest validated comparison:
 
@@ -328,7 +330,8 @@ Latest validated comparison:
 | --- | ---: | ---: | ---: | ---: |
 | Paper reference | 56776 | 47106 | 2.49 / 2.62 | n/a |
 | Legacy pipeline | 71806 | 71806 | 3.1636 | 228 |
-| Current multi-agent portfolio + repair | 67982 | 67982 | 3.1727 | 227 |
-| Heuristic fallback + repair | 70074 | 70074 | 3.0364 | 242 |
+| Current multi-agent saving-aware generation + repair | 67715 | 67715 | 3.1636 | 228 |
+| Heuristic fallback + repair | 69736 | 69736 | 3.0364 | 242 |
+| Pure CP-SAT problem 3 candidate | n/a | 67921 | 3.1545 | n/a |
 
-This improves the current multi-agent architecture from traceable reproduction to measurable optimization progress: cost decreases by `3824` against the legacy pipeline while preserving constraint audit status `pass` and the 12-step multi-agent execution trace. The result is still above the paper reference, so the next optimization target is task generation and forecast calibration rather than another presentation-layer change.
+This improves the current multi-agent architecture from traceable reproduction to measurable optimization progress: cost decreases by `4091` against the legacy pipeline and by `267` against the previous portfolio-and-repair stage while preserving constraint audit status `pass` and the 12-step multi-agent execution trace. The result is still above the paper reference, so the next optimization target is deeper task-generation search and forecast calibration rather than another presentation-layer change.

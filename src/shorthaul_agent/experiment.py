@@ -38,6 +38,7 @@ class ExperimentConfig:
     solver_strategy: str = "cpsat_with_heuristic_fallback"
     prefer_cpsat: bool = True
     solver_time_limit_seconds: float = 20.0
+    tail_cover_strategy: str = "min_count"
     cpsat_search_seeds: list = None
     cpsat_num_workers: int = 8
     run_weight_grid: bool = True
@@ -278,6 +279,7 @@ class DemandGenerationAgent:
             "allow_external": True,
             "prefer_cpsat": experiment_config.prefer_cpsat,
             "solver_time_limit_seconds": experiment_config.solver_time_limit_seconds,
+            "tail_cover_strategy": experiment_config.tail_cover_strategy,
             "cpsat_search_seeds": tuple(int(seed) for seed in experiment_config.cpsat_search_seeds),
             "cpsat_num_workers": int(experiment_config.cpsat_num_workers),
             "milk_run_pairs": milk_run_pairs,
@@ -936,6 +938,7 @@ def build_summary(
             "target_date": experiment_config.target_date,
             "base_date": experiment_config.base_date,
             "prefer_cpsat": experiment_config.prefer_cpsat,
+            "tail_cover_strategy": experiment_config.tail_cover_strategy,
             "cpsat_search_seeds": experiment_config.cpsat_search_seeds,
             "cpsat_num_workers": experiment_config.cpsat_num_workers,
         },

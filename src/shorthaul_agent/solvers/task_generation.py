@@ -158,7 +158,8 @@ def _try_cpsat_tail_cover(tasks: list[DispatchTask], config: ProblemConfig) -> O
         covering = [selected[idx] for idx, combo in enumerate(candidates) if task_idx in combo]
         model.Add(sum(covering) == 1)
 
-    model.Minimize(sum(selected))
+    weights = [_tail_cover_weight(candidate, tasks, config) for candidate in candidates]
+    model.Minimize(sum(weights[idx] * selected[idx] for idx in range(len(candidates))))
     solver = cp_model.CpSolver()
     solver.parameters.max_time_in_seconds = min(config.solver_time_limit_seconds, 3.0)
     status = solver.Solve(model)
@@ -185,7 +186,7 @@ def _greedy_tail_cover(tasks: list[DispatchTask], config: ProblemConfig) -> list
             current_volume = sum(task.volume for task in current)
             latest = min(task.latest_minute for task in current)
             best_index = None
-            best_slack = None
+            best_weight = None
             for idx, candidate in enumerate(remaining):
                 combined_volume = current_volume + candidate.volume
                 combined_earliest = max(max(task.earliest_minute for task in current), candidate.earliest_minute)
@@ -193,10 +194,10 @@ def _greedy_tail_cover(tasks: list[DispatchTask], config: ProblemConfig) -> list
                 combo_tasks = current + [candidate]
                 compatible = _destinations_compatible(tuple(range(len(combo_tasks))), combo_tasks, config)
                 if combined_volume <= config.vehicle_capacity and combined_earliest <= combined_latest and compatible:
-                    slack = config.vehicle_capacity - combined_volume
-                    if best_slack is None or slack < best_slack:
+                    weight = _tail_cover_weight(tuple(range(len(combo_tasks))), combo_tasks, config)
+                    if best_weight is None or weight < best_weight:
                         best_index = idx
-                        best_slack = slack
+                        best_weight = weight
             if best_index is not None:
                 current.append(remaining.pop(best_index))
                 changed = True
@@ -214,3 +215,23 @@ def _destinations_compatible(combo: tuple[int, ...], tasks: list[DispatchTask], 
             if tuple(sorted((left, right))) not in config.milk_run_pairs:
                 return False
     return True
+
+
+def _tail_cover_weight(combo: tuple[int, ...], tasks: list[DispatchTask], config: ProblemConfig) -> int:
+    merged = _merge_tail_tasks([tasks[idx] for idx in combo], 1)
+    slack = config.vehicle_capacity - merged.volume
+    single_external_cost = sum(tasks[idx].external_cost for idx in combo)
+    external_saving = single_external_cost - merged.external_cost
+    strategy = config.tail_cover_strategy
+
+    if strategy == "cost_aware":
+        tie_breaker = merged.external_cost * 100 + merged.variable_cost * 20 + merged.travel_minutes * 2 + slack
+    elif strategy == "duration_aware":
+        tie_breaker = merged.travel_minutes * 100 + merged.external_cost * 10 + slack
+    elif strategy == "saving_aware":
+        tie_breaker = -external_saving * 100 + merged.travel_minutes * 5 + slack
+    elif strategy == "fill_aware":
+        tie_breaker = slack * 100 + merged.external_cost * 10 + merged.travel_minutes
+    else:
+        tie_breaker = slack
+    return 1_000_000 + int(tie_breaker)

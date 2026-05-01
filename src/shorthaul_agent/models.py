@@ -24,6 +24,7 @@ class ProblemConfig:
     allow_external: bool = True
     prefer_cpsat: bool = True
     set_cover_tail_threshold: int = 80
+    tail_cover_strategy: str = "min_count"
     solver_time_limit_seconds: float = 10.0
     cpsat_search_seed: int = 0
     cpsat_search_seeds: tuple[int, ...] = (0,)

@@ -8,6 +8,7 @@ task_generation_strategy: full_load_plus_tail_set_cover
 solver_strategy: cpsat_portfolio_with_external_repair_and_non_regression_baseline
 prefer_cpsat: true
 solver_time_limit_seconds: 20
+tail_cover_strategy: saving_aware
 cpsat_search_seeds: [0, 7, 19]
 cpsat_num_workers: 8
 run_weight_grid: true

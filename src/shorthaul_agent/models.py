@@ -31,6 +31,8 @@ class ProblemConfig:
     cpsat_search_seed: int = 0
     cpsat_search_seeds: tuple[int, ...] = (0,)
     cpsat_num_workers: int = 8
+    cpsat_deterministic: bool = False
+    cpsat_use_deterministic_time: bool = False
     objective_weights: ObjectiveWeights = field(default_factory=ObjectiveWeights)
     milk_run_pairs: set = field(default_factory=set)
 

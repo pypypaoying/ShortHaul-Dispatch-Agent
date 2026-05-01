@@ -16,6 +16,7 @@ import pandas as pd
 from shorthaul_agent.models import Assignment, Fleet, ForecastBucket, Instance, ProblemConfig, Route, ScheduleSolution
 from shorthaul_agent.solvers.heuristic import calculate_kpis
 from shorthaul_agent.solvers import CpSatScheduler, HeuristicScheduler, generate_dispatch_tasks
+from shorthaul_agent.solvers.cpsat import effective_cpsat_workers
 from shorthaul_agent.time_utils import format_minutes
 
 
@@ -43,8 +44,12 @@ class ExperimentConfig:
     tail_beam_width: int = 12
     tail_cover_strategy_grid: list = None
     tail_candidate_strategy_grid: list = None
+    task_generation_portfolio_artifact: str = ""
+    task_generation_portfolio_selection: dict = None
     cpsat_search_seeds: list = None
     cpsat_num_workers: int = 8
+    cpsat_deterministic: bool = False
+    cpsat_use_deterministic_time: bool = False
     run_weight_grid: bool = True
     focus_routes: list = None
 
@@ -57,6 +62,8 @@ class ExperimentConfig:
             self.tail_cover_strategy_grid = ["min_count", "saving_aware", "cost_aware", "duration_aware", "fill_aware"]
         if self.tail_candidate_strategy_grid is None:
             self.tail_candidate_strategy_grid = [self.tail_candidate_strategy]
+        if self.task_generation_portfolio_selection is None:
+            self.task_generation_portfolio_selection = {}
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "ExperimentConfig":
@@ -138,6 +145,8 @@ def run_task_generation_tuning(
         "prefer_cpsat": prefer_cpsat,
         "solver_time_limit_seconds": solver_time_limit_seconds if solver_time_limit_seconds is not None else base_config.solver_time_limit_seconds,
         "cpsat_search_seeds": cpsat_search_seeds if cpsat_search_seeds is not None else base_config.cpsat_search_seeds,
+        "cpsat_deterministic": base_config.cpsat_deterministic,
+        "cpsat_num_workers": base_config.cpsat_num_workers,
         "tail_cover_strategy_grid": cover_grid,
         "tail_candidate_strategy_grid": candidate_grid,
         "best": best,
@@ -146,6 +155,43 @@ def run_task_generation_tuning(
     write_json(output_dir / "task_generation_grid_summary.json", summary)
     (output_dir / "task_generation_grid_report.md").write_text(render_task_generation_tuning_report(summary, table), encoding="utf-8")
     return summary
+
+
+def resolve_task_generation_portfolio_artifact(experiment_config: ExperimentConfig) -> ExperimentConfig:
+    artifact = experiment_config.task_generation_portfolio_artifact
+    if not artifact:
+        return experiment_config
+
+    artifact_path = Path(artifact)
+    if not artifact_path.is_absolute():
+        artifact_path = Path(experiment_config.output_dir).parent / artifact_path
+        if not artifact_path.exists():
+            artifact_path = Path(artifact)
+    if not artifact_path.exists():
+        raise FileNotFoundError(f"Task generation portfolio artifact not found: {artifact}")
+
+    payload = json.loads(artifact_path.read_text(encoding="utf-8"))
+    best = payload.get("best", {})
+    candidate_strategy = best.get("tail_candidate_strategy")
+    cover_strategy = best.get("tail_cover_strategy")
+    if not candidate_strategy or not cover_strategy:
+        return experiment_config
+
+    selection = {
+        "artifact": str(artifact_path),
+        "run_name": best.get("run_name"),
+        "tail_candidate_strategy": candidate_strategy,
+        "tail_cover_strategy": cover_strategy,
+        "problem2_total_cost": best.get("problem2_total_cost"),
+        "problem3_total_cost": best.get("problem3_total_cost"),
+        "constraint_status": best.get("constraint_status"),
+    }
+    return replace(
+        experiment_config,
+        tail_candidate_strategy=candidate_strategy,
+        tail_cover_strategy=cover_strategy,
+        task_generation_portfolio_selection=selection,
+    )
 
 
 def load_experiment_config(config_path: Path) -> ExperimentConfig:
@@ -184,6 +230,7 @@ def parse_yaml_scalar(value: str) -> Any:
 
 
 def run_configured_experiment(experiment_config: ExperimentConfig) -> Dict[str, Any]:
+    experiment_config = resolve_task_generation_portfolio_artifact(experiment_config)
     data_dir = Path(experiment_config.data_dir)
     output_dir = Path(experiment_config.output_dir)
     agent_trace: list = []
@@ -313,6 +360,8 @@ def render_task_generation_tuning_report(summary: Dict[str, Any], table: pd.Data
         f"- Prefer CP-SAT: {summary['prefer_cpsat']}",
         f"- Solver time limit seconds: {summary['solver_time_limit_seconds']}",
         f"- CP-SAT seeds: {summary['cpsat_search_seeds']}",
+        f"- CP-SAT deterministic mode: {summary['cpsat_deterministic']}",
+        f"- CP-SAT workers: {summary['cpsat_num_workers']}",
         "",
         "## Best Run",
     ]
@@ -426,6 +475,8 @@ class DemandGenerationAgent:
             "tail_beam_width": int(experiment_config.tail_beam_width),
             "cpsat_search_seeds": tuple(int(seed) for seed in experiment_config.cpsat_search_seeds),
             "cpsat_num_workers": int(experiment_config.cpsat_num_workers),
+            "cpsat_deterministic": bool(experiment_config.cpsat_deterministic),
+            "cpsat_use_deterministic_time": bool(experiment_config.cpsat_use_deterministic_time),
             "milk_run_pairs": milk_run_pairs,
         }
         config_p2 = ProblemConfig(allow_container=False, **common_config)
@@ -442,6 +493,7 @@ class DemandGenerationAgent:
                     "tail_cover_strategy": experiment_config.tail_cover_strategy,
                     "tail_candidate_strategy": experiment_config.tail_candidate_strategy,
                     "tail_beam_width": int(experiment_config.tail_beam_width),
+                    "task_generation_portfolio_selection": experiment_config.task_generation_portfolio_selection,
                     "problem2_tasks": len(tasks_p2),
                     "problem3_tasks": len(tasks_p3),
                     "milk_run_pairs": len(milk_run_pairs),
@@ -746,6 +798,9 @@ def solve_cpsat_portfolio(instance: Instance, tasks: list, config: ProblemConfig
                 "status": candidate.status,
                 "total_cost": candidate.kpis.get("total_cost") if candidate.kpis else None,
                 "external_task_count": candidate.kpis.get("external_task_count") if candidate.kpis else None,
+                "workers": effective_cpsat_workers(seeded_config),
+                "deterministic": bool(seeded_config.cpsat_deterministic),
+                "deterministic_time": bool(seeded_config.cpsat_use_deterministic_time),
             }
         )
 
@@ -1088,8 +1143,18 @@ def build_summary(
             "tail_cover_strategy": experiment_config.tail_cover_strategy,
             "tail_candidate_strategy": experiment_config.tail_candidate_strategy,
             "tail_beam_width": int(experiment_config.tail_beam_width),
+            "task_generation_portfolio_artifact": experiment_config.task_generation_portfolio_artifact,
+            "task_generation_portfolio_selection": experiment_config.task_generation_portfolio_selection,
             "cpsat_search_seeds": experiment_config.cpsat_search_seeds,
             "cpsat_num_workers": experiment_config.cpsat_num_workers,
+            "cpsat_effective_workers": effective_cpsat_workers(
+                ProblemConfig(
+                    cpsat_num_workers=int(experiment_config.cpsat_num_workers),
+                    cpsat_deterministic=bool(experiment_config.cpsat_deterministic),
+                )
+            ),
+            "cpsat_deterministic": experiment_config.cpsat_deterministic,
+            "cpsat_use_deterministic_time": experiment_config.cpsat_use_deterministic_time,
         },
         "data": {
             "routes": int(dataset.routes["线路编码"].nunique()),

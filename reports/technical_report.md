@@ -324,7 +324,9 @@ The current optimization phase improves task generation itself while keeping the
 
 The generator also supports `tail_candidate_strategy: beam`. The beam mode preserves all singleton tail tasks for coverage, then expands only the highest-scoring multi-stop candidates under the active tail-cover objective. This gives the project a controlled search knob when exhaustive candidate enumeration becomes too expensive or noisy.
 
-The solver layer remains a CP-SAT portfolio over seeds `[0, 7, 19]`. Each seed receives the full configured time limit, and the solver agent selects the feasible schedule with the lowest measured total cost. A deterministic repair pass then converts or swaps external-carrier tasks into feasible self-owned vehicle slots when the replacement reduces measured total cost.
+The solver layer is now a deterministic CP-SAT portfolio over seeds `[0, 7, 19]`. The performance configuration uses one CP-SAT worker and deterministic-time limits, and the solver agent selects the feasible schedule with the lowest measured total cost. A deterministic repair pass then converts or swaps external-carrier tasks into feasible self-owned vehicle slots when the replacement reduces measured total cost.
+
+Formal experiments can reuse an audited task-generation tuning artifact by setting `task_generation_portfolio_artifact` to a prior `task_generation_grid_summary.json`. The experiment then records the source artifact and selected generation strategy in `experiment_summary.json`, which makes the tuning-to-benchmark handoff explicit.
 
 Latest validated comparison:
 
@@ -332,9 +334,9 @@ Latest validated comparison:
 | --- | ---: | ---: | ---: | ---: |
 | Paper reference | 56776 | 47106 | 2.49 / 2.62 | n/a |
 | Legacy pipeline | 71806 | 71806 | 3.1636 | 228 |
-| Current multi-agent cost-aware generation + repair | 67816 | 67816 | 3.1636 | 228 |
+| Current multi-agent deterministic cost-aware generation + repair | 67759 | 67537 | 3.1636 / 3.1818 | 228 / 226 |
 | Heuristic fallback + repair | 69736 | 69736 | 3.0364 | 242 |
-| Pure CP-SAT problem 3 candidate | n/a | 67896 | 3.1545 | n/a |
+| Pure CP-SAT problem 3 candidate | n/a | 67537 | 3.1818 | n/a |
 
 Task-generation search results:
 
@@ -343,6 +345,6 @@ Task-generation search results:
 | Short grid best: exhaustive_cost_aware | 67475 | 67475 | 225 | pass |
 | Short grid best: beam_saving_aware | 67475 | 67475 | 225 | pass |
 | Full standalone portfolio: exhaustive_cost_aware | 67672 | 67528 | 227 / 226 | pass |
-| Formal comparison run: exhaustive_cost_aware | 67816 | 67816 | 228 | pass |
+| Formal deterministic comparison: exhaustive_cost_aware | 67759 | 67537 | 228 / 226 | pass |
 
-This keeps the current multi-agent architecture in measurable optimization territory: the formal comparison run decreases cost by `3990` against the legacy pipeline while preserving constraint audit status `pass` and the 12-step multi-agent execution trace. The best standalone portfolio run reached `67672` for problem 2 and `67528` for problem 3, but CP-SAT multi-worker search still has run-to-run variance. The next optimization target is to reduce that variance with deterministic solver settings or a task-generation portfolio that records and reuses the best audited configuration.
+This keeps the current multi-agent architecture in measurable optimization territory: the formal comparison run decreases cost by `4047` for problem 2 and `4269` for problem 3 against the legacy pipeline while preserving constraint audit status `pass` and the 12-step multi-agent execution trace. The next optimization target is to reduce the remaining gap to the paper reference by improving forecast calibration and adding a stronger repair objective, rather than relying on thread-level solver variance.

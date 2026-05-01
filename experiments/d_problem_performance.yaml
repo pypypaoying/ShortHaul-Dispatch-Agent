@@ -14,5 +14,7 @@ tail_beam_width: 12
 tail_cover_strategy_grid: [saving_aware, cost_aware, duration_aware, fill_aware, min_count]
 tail_candidate_strategy_grid: [exhaustive, beam]
 cpsat_search_seeds: [0, 7, 19]
-cpsat_num_workers: 8
+cpsat_num_workers: 1
+cpsat_deterministic: true
+cpsat_use_deterministic_time: true
 run_weight_grid: true

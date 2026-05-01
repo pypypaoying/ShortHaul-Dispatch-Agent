@@ -229,7 +229,7 @@ The comparison answers whether the new multi-agent architecture improves the pro
 The performance configuration now attacks two levers while keeping the same D-problem data adapter, statistical forecast, and hard constraints:
 
 - Task generation: `tail_cover_strategy: cost_aware` keeps the set-cover objective of minimizing tail tasks, but breaks ties by preferring lower external-carrier and route-cost exposure. The generator also supports `tail_candidate_strategy: beam` for cost-aware candidate pruning.
-- Solver layer: the solver call uses a CP-SAT portfolio plus deterministic external-carrier repair. It runs seeds `[0, 7, 19]` with the full configured time limit, selects the feasible solution with the lowest measured total cost, then swaps high-saving external tasks into feasible self-owned vehicle slots when doing so reduces true cost.
+- Solver layer: the solver call uses a deterministic CP-SAT portfolio plus deterministic external-carrier repair. It runs seeds `[0, 7, 19]` with one worker and deterministic-time limits, selects the feasible solution with the lowest measured total cost, then swaps high-saving external tasks into feasible self-owned vehicle slots when doing so reduces true cost.
 
 ```powershell
 $env:PYTHONPATH="src"
@@ -237,11 +237,11 @@ D:\miniconda3\python.exe -m shorthaul_agent.cli run-experiment --config experime
 ```
 
 Latest validated comparison run:
-- Problem 2 total cost: `67816`, own-vehicle turnover: `3.1636`, external tasks: `228`
-- Problem 3 total cost: `67816`, own-vehicle turnover: `3.1636`, external tasks: `228`
-- Pure CP-SAT problem 3 candidate: `67896`; the non-regression container baseline is selected at `67816`
+- Problem 2 total cost: `67759`, own-vehicle turnover: `3.1636`, external tasks: `228`
+- Problem 3 total cost: `67537`, own-vehicle turnover: `3.1818`, external tasks: `226`
+- Pure CP-SAT problem 3 candidate: `67537`; it beats the non-regression container baseline at `67759`
 - Legacy pipeline comparison cost: `71806`
-- Improvement vs legacy: `-3990` cost for both problem 2 and problem 3
+- Improvement vs legacy: `-4047` for problem 2 and `-4269` for problem 3
 - Best full standalone portfolio run during task-generation tuning: problem 2 `67672`, problem 3 `67528`
 
 Task-generation grid search:
@@ -252,6 +252,8 @@ D:\miniconda3\python.exe -m shorthaul_agent.cli tune-task-generation --config ex
 ```
 
 The latest grid search evaluated 10 combinations. Short-run best cost was `67475`, reached by `exhaustive_cost_aware`, `exhaustive_fill_aware`, `beam_saving_aware`, and `beam_fill_aware`; the full portfolio validation selected `exhaustive_cost_aware` as the default because it was the most stable in the long run.
+
+Formal experiments can also reuse an audited tuning artifact by setting `task_generation_portfolio_artifact` in the experiment config to a prior `task_generation_grid_summary.json`. The run then records the selected `tail_candidate_strategy` and `tail_cover_strategy` in `experiment_summary.json`.
 
 To refresh the full comparison table with the performance solver:
 

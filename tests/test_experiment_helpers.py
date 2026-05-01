@@ -13,6 +13,7 @@ from shorthaul_agent.experiment import (  # noqa: E402
     normalize_route_code,
     parse_simple_yaml,
     polish_external_assignments,
+    resolve_task_generation_portfolio_artifact,
 )
 from shorthaul_agent.models import Assignment, DispatchTask, Fleet, Instance, ProblemConfig, ScheduleSolution  # noqa: E402
 from shorthaul_agent.solvers.task_generation import _candidate_tail_sets, _tail_cover_weight, consolidate_tail_tasks  # noqa: E402
@@ -65,7 +66,9 @@ def test_performance_config_loads_cpsat_portfolio_defaults():
     config = load_experiment_config(ROOT / "experiments" / "d_problem_performance.yaml")
     assert config.name == "d_problem_performance_portfolio"
     assert config.cpsat_search_seeds == [0, 7, 19]
-    assert config.cpsat_num_workers == 8
+    assert config.cpsat_num_workers == 1
+    assert config.cpsat_deterministic is True
+    assert config.cpsat_use_deterministic_time is True
     assert config.tail_cover_strategy == "cost_aware"
     assert config.tail_candidate_strategy == "exhaustive"
     assert config.tail_candidate_strategy_grid == ["exhaustive", "beam"]
@@ -78,9 +81,33 @@ def test_simple_yaml_parses_numeric_lists():
 
 
 def test_problem_config_merges_cpsat_seed_lists():
-    config = ProblemConfig().merged({"cpsat_search_seeds": [3, 5], "cpsat_num_workers": 1})
+    config = ProblemConfig().merged(
+        {"cpsat_search_seeds": [3, 5], "cpsat_num_workers": 1, "cpsat_deterministic": True, "cpsat_use_deterministic_time": True}
+    )
     assert config.cpsat_search_seeds == (3, 5)
     assert config.cpsat_num_workers == 1
+    assert config.cpsat_deterministic is True
+    assert config.cpsat_use_deterministic_time is True
+
+
+def test_task_generation_portfolio_artifact_selects_best_strategy():
+    temp_dir = ROOT / "pytest-cache-files-task-generation-artifact"
+    temp_dir.mkdir(exist_ok=True)
+    artifact = temp_dir / "task_generation_grid_summary.json"
+    artifact.write_text(
+        '{"best": {"run_name": "beam_saving_aware", "tail_candidate_strategy": "beam", '
+        '"tail_cover_strategy": "saving_aware", "problem2_total_cost": 10, '
+        '"problem3_total_cost": 11, "constraint_status": "pass"}}',
+        encoding="utf-8",
+    )
+    config = load_experiment_config(ROOT / "experiments" / "d_problem_performance.yaml")
+    config.task_generation_portfolio_artifact = str(artifact)
+
+    selected = resolve_task_generation_portfolio_artifact(config)
+
+    assert selected.tail_candidate_strategy == "beam"
+    assert selected.tail_cover_strategy == "saving_aware"
+    assert selected.task_generation_portfolio_selection["run_name"] == "beam_saving_aware"
 
 
 def test_tail_cover_saving_strategy_prefers_external_saving():

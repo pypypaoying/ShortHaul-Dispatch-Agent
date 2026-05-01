@@ -131,9 +131,18 @@ class CpSatScheduler:
         )
 
         solver = cp_model.CpSolver()
-        solver.parameters.max_time_in_seconds = config.solver_time_limit_seconds
-        solver.parameters.num_search_workers = config.cpsat_num_workers
+        if config.cpsat_deterministic and config.cpsat_use_deterministic_time:
+            solver.parameters.max_deterministic_time = config.solver_time_limit_seconds
+            solver.parameters.max_time_in_seconds = max(config.solver_time_limit_seconds * 3, config.solver_time_limit_seconds + 30)
+        else:
+            solver.parameters.max_time_in_seconds = config.solver_time_limit_seconds
+        solver.parameters.num_search_workers = effective_cpsat_workers(config)
         solver.parameters.random_seed = config.cpsat_search_seed
+        if config.cpsat_deterministic:
+            solver.parameters.randomize_search = False
+            solver.parameters.permute_variable_randomly = False
+            solver.parameters.permute_presolve_constraint_order = False
+            solver.parameters.use_absl_random = False
         status = solver.Solve(model)
         if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
             return ScheduleSolution(
@@ -202,6 +211,12 @@ def _build_vehicles(fleets: list[Fleet]) -> list[Vehicle]:
                 )
             )
     return vehicles
+
+
+def effective_cpsat_workers(config: ProblemConfig) -> int:
+    if config.cpsat_deterministic:
+        return 1
+    return max(1, int(config.cpsat_num_workers))
 
 
 def _max_duration(task: DispatchTask, fleet: Fleet) -> int:

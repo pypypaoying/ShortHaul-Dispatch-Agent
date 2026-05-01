@@ -18,6 +18,7 @@ from shorthaul_agent.solvers.heuristic import calculate_kpis
 from shorthaul_agent.solvers import CpSatScheduler, HeuristicScheduler, generate_dispatch_tasks
 from shorthaul_agent.solvers.cpsat import effective_cpsat_workers
 from shorthaul_agent.time_utils import format_minutes
+from shorthaul_agent.tracking import log_experiment_to_wandb
 
 
 FOCUS_ROUTES = ["场地3 - 站点83 - 0600", "场地3 - 站点83 - 1400"]
@@ -50,6 +51,12 @@ class ExperimentConfig:
     cpsat_num_workers: int = 8
     cpsat_deterministic: bool = False
     cpsat_use_deterministic_time: bool = False
+    wandb_enabled: bool = False
+    wandb_project: str = "shorthaul-dispatch-agent"
+    wandb_entity: str = ""
+    wandb_run_name: str = ""
+    wandb_mode: str = ""
+    wandb_tags: list = None
     run_weight_grid: bool = True
     focus_routes: list = None
 
@@ -64,6 +71,8 @@ class ExperimentConfig:
             self.tail_candidate_strategy_grid = [self.tail_candidate_strategy]
         if self.task_generation_portfolio_selection is None:
             self.task_generation_portfolio_selection = {}
+        if self.wandb_tags is None:
+            self.wandb_tags = []
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "ExperimentConfig":
@@ -321,6 +330,7 @@ def run_configured_experiment(experiment_config: ExperimentConfig) -> Dict[str, 
         agent_trace=agent_trace,
         weight_grid=weight_grid,
     )
+    summary["tracking"] = log_experiment_to_wandb(experiment_config, summary, output_dir)
     write_json(output_dir / "experiment_summary.json", summary)
     (output_dir / "experiment_report.md").write_text(render_report(summary), encoding="utf-8")
     return summary
@@ -1280,6 +1290,12 @@ def build_summary(
             ),
             "cpsat_deterministic": experiment_config.cpsat_deterministic,
             "cpsat_use_deterministic_time": experiment_config.cpsat_use_deterministic_time,
+            "wandb_enabled": experiment_config.wandb_enabled,
+            "wandb_project": experiment_config.wandb_project,
+            "wandb_entity": experiment_config.wandb_entity,
+            "wandb_run_name": experiment_config.wandb_run_name,
+            "wandb_mode": experiment_config.wandb_mode,
+            "wandb_tags": experiment_config.wandb_tags,
         },
         "data": {
             "routes": int(dataset.routes["线路编码"].nunique()),

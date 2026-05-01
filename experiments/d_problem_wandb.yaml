@@ -1,0 +1,24 @@
+name: d_problem_performance_wandb
+data_dir: D_PROBLEM_DATA
+output_dir: outputs_performance_stage
+target_date: 2024-12-16
+base_date: 2024-12-15
+forecast_model: statistical_baseline
+task_generation_strategy: full_load_plus_tail_set_cover
+solver_strategy: cpsat_portfolio_with_external_repair_and_non_regression_baseline
+prefer_cpsat: true
+solver_time_limit_seconds: 20
+tail_cover_strategy: cost_aware
+tail_candidate_strategy: exhaustive
+tail_beam_width: 12
+tail_cover_strategy_grid: [saving_aware, cost_aware, duration_aware, fill_aware, min_count]
+tail_candidate_strategy_grid: [exhaustive, beam]
+cpsat_search_seeds: [0, 7, 19]
+cpsat_num_workers: 1
+cpsat_deterministic: true
+cpsat_use_deterministic_time: true
+run_weight_grid: true
+wandb_enabled: true
+wandb_project: shorthaul-dispatch-agent
+wandb_mode: offline
+wandb_tags: [d-problem, performance, cpsat]

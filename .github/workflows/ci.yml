@@ -25,7 +25,7 @@ jobs:
         run: python scripts/format_check.py
 
       - name: Compile package
-        run: python -m compileall -q src
+        run: python -m compileall -q src tests scripts
 
       - name: Smoke test
         run: python scripts/smoke_test.py

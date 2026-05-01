@@ -17,6 +17,7 @@ llm = ["openai>=1.0"]
 api = ["fastapi>=0.110", "uvicorn>=0.27"]
 dev = ["pytest>=8.0"]
 experiment = ["matplotlib>=3.7", "seaborn>=0.13"]
+tracking = ["wandb>=0.16"]
 
 [project.scripts]
 shorthaul-agent = "shorthaul_agent.cli:main"

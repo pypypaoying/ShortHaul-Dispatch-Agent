@@ -1,350 +1,175 @@
-# LLM + 约束规划短途运输多智能体调度 Agent 技术报告
+# Technical Report: LLM + Constraint Programming Multi-Agent Scheduler
 
-## 1. 项目目标
+## 1. Project Goal
 
-本项目基于数学建模论文《基于混合预测与约束规划的短途运输集成调度优化研究》，将其中的短途运输预测、任务生成、串点优化、车辆调度、容器决策和敏感性分析方法转化为可运行的软件系统。
+This project upgrades a mathematical modeling solution into a runnable short-haul dispatch system. The system uses an LLM-oriented multi-agent layer to understand scheduling requirements, generate structured tasks, audit constraints, call a verifiable optimizer, repair weak solutions, and explain final plans.
 
-目标交付物包括：
+The design principle is simple: language models handle ambiguity and workflow orchestration, while OR-Tools CP-SAT and deterministic heuristics handle the parts that must be checked, repeated, and benchmarked.
 
-- 一个可发布到 GitHub 的 Python 工程仓库；
-- 一个可端到端运行的调度 Agent MVP；
-- 一份说明模型、架构、算法和后续扩展路径的技术报告。
+## 2. Problem Setting
 
-系统采用“LLM 负责理解需求，优化器负责可验证求解”的设计。LLM 不直接决定调度结果，而是把自然语言需求转成结构化配置；真正的车辆分配、时间窗、容量和串点约束交给 CP-SAT 或启发式算法处理。
+The D-problem data contains:
 
-## 2. 论文模型到工程模块的映射
+- Route metadata.
+- Historical 10-minute package volumes.
+- Known daily volume estimates.
+- Milk-run compatible station pairs.
+- Self-owned fleet counts.
+- Result table templates.
 
-| 论文部分 | 工程模块 | 说明 |
-| --- | --- | --- |
-| 问题一：货量预测与 10 分钟拆解 | `Instance.forecast` 输入层 | 当前 MVP 接收预测结果，不重新训练 LSTM-MLP |
-| 问题二：满载任务、尾货串点、车辆分配 | `task_generation.py` + `cpsat.py` | 先生成任务，再执行集合覆盖/车辆调度 |
-| 问题三：标准容器内生决策 | `ProblemConfig.allow_container` + `use_container` | 容器影响容量和装卸时长 |
-| 问题四：预测偏差敏感性分析 | 后续 `simulation` 模块 | 计划支持总量偏差与时间漂移场景 |
-| 方案解释与重点线路展示 | `ExplanationAgent` | 对用户解释发运时间、车辆、容器、KPI |
+The current experiment targets:
 
-## 3. 总体架构
+- Result table 1: daily forecast.
+- Result table 2: 10-minute forecast.
+- Result table 3: problem-2 dispatch plan.
+- Result table 4: problem-3 dispatch plan with container decisions.
+- Problem 4: sensitivity analysis over volume bias and arrival-time shifts.
+
+## 3. System Architecture
 
 ```mermaid
-flowchart TD
-    A["用户自然语言需求"] --> B["需求解析 Agent"]
-    B --> C["结构化调度配置"]
-    C --> D["约束检查 Agent"]
-    D --> E["任务生成器"]
-    E --> F["满载任务"]
-    E --> G["尾货任务"]
-    G --> H["串点集合覆盖"]
-    F --> I["车辆调度模型"]
-    H --> I
-    I --> J["CP-SAT 求解器"]
-    I --> K["启发式兜底"]
-    J --> L["调度方案"]
-    K --> L
-    L --> M["方案解释 Agent"]
-    D --> N["异常修复 Agent"]
-    N --> C
+flowchart LR
+    A["Scheduling request or D-problem data"] --> B["Data and demand parsing"]
+    B --> C["ForecastAgent"]
+    C --> D["DemandGenerationAgent"]
+    D --> E["ConstraintAuditAgent"]
+    E --> F["SolverAgent"]
+    F --> G["RepairAgent"]
+    G --> H["ConstraintAuditAgent"]
+    H --> I["ExplanationAgent"]
+    I --> J["Tables, KPI JSON, reports, plots, W&B"]
 ```
 
-## 4. 多 Agent 设计
+### Agent Roles
 
-### 4.1 需求解析 Agent
-
-输入为中文自然语言，例如：
-
-> 请基于 2024-12-16 的预测货量生成短途运输调度方案。车辆容量为 1000，允许使用标准容器，容器容量 800。优化目标需要平衡总成本、自有车周转率和车辆填充率。
-
-输出为：
-
-- 目标日期；
-- 重点线路；
-- 车辆容量、容器容量；
-- 是否允许使用容器；
-- 多目标权重；
-- 硬约束和软偏好。
-
-当前实现支持两条路径：
-
-- 若存在 `OPENAI_API_KEY`，尝试调用 LLM 输出 JSON；
-- 否则使用规则解析器，保证本地可运行。
-
-### 4.2 约束检查 Agent
-
-负责验证：
-
-- 线路 ID 是否重复；
-- 线路引用的车队是否存在；
-- 预测货量是否为负；
-- 时间窗是否合法；
-- 容器容量是否超过车辆容量；
-- 串点数量是否超过上限。
-
-### 4.3 求解器调用 Agent
-
-负责选择求解路径：
-
-- 优先使用 OR-Tools CP-SAT；
-- 未安装 OR-Tools 时，使用启发式调度器兜底；
-- 输出统一的 `ScheduleSolution`，便于上层解释和导出。
-
-### 4.4 方案解释 Agent
-
-将求解结果转成面向业务的中文说明，包含：
-
-- 求解状态；
-- 任务数与分配数；
-- 自有车任务与外部承运任务；
-- 总成本、自有车周转率、装载率；
-- 重点线路发运时间、车辆、货量、容器使用情况。
-
-### 4.5 异常修复 Agent
-
-MVP 中先实现保守修复：
-
-- 对输入硬错误不自动篡改数据；
-- 若禁止外部承运导致潜在不可行，可建议或启用外部承运兜底；
-- 后续可加入自动放松时间窗、拆分超容量任务、改用外部承运等策略。
-
-### 4.6 真实实验多 Agent 工作流
-
-最新 D 题实验链路已经从单个脚本升级为可审计的多 Agent 工作流。每个 Agent 的状态、摘要和关键指标会写入 `experiment_summary.json` 的 `agent_trace` 字段。
-
-| Agent | 职责 | 输出 |
+| Agent | Responsibility | Output |
 | --- | --- | --- |
-| DataIngestionAgent | 读取附件、结果表模板并规范化字段 | 数据规模、线路数、车队数 |
-| ForecastAgent | 生成日度预测和 10 分钟拆解 | 预测模型、预测行数、总预测货量 |
-| DemandGenerationAgent | 构造调度实例、生成满载/尾货/串点任务 | 任务数、串点关系数 |
-| ConstraintAuditAgent | 审计任务和调度结果约束 | 违规数、警告数 |
-| SolverAgent | 调用 CP-SAT 或启发式兜底 | 求解器、状态、成本、外部承运数 |
-| RepairAgent | 构建问题三非退化基线并选择方案 | 候选成本、基线成本、选中方案 |
-| ExplanationAgent | 汇总 KPI、报告、复现状态 | summary、报告、可视化说明 |
+| `DemandParserAgent` | Convert natural-language requirements into structured scheduling requests. | structured request |
+| `ForecastAgent` | Produce daily and 10-minute forecasts from historical and known volume data. | forecast tables |
+| `DemandGenerationAgent` | Generate full-load tasks, tail-load tasks, and milk-run candidates. | dispatch tasks |
+| `ConstraintAuditAgent` | Check capacity, time windows, station compatibility, container rules, and vehicle overlap. | audit report |
+| `SolverAgent` | Run CP-SAT, heuristic fallback, and portfolio selection. | schedule solution |
+| `RepairAgent` | Reduce external carriers and protect problem-3 non-regression behavior. | repaired solution |
+| `ExplanationAgent` | Generate KPI comparisons, focus-route notes, reports, and summary JSON. | explanation artifacts |
 
-这种设计让 LLM 负责需求理解和解释生成，而容量、时间窗、车辆衔接、串点和容器决策仍由可验证优化器与审计逻辑负责，避免把不可验证决策交给语言模型。
+## 4. Forecasting Baseline
 
-## 5. 任务生成模型
+The current forecast is a statistical baseline:
 
-对每条线路按 10 分钟预测货量排序并累积：
+1. Start from the known daily volume.
+2. Correct it with historical route-level factors.
+3. Split daily demand into 10-minute buckets using historical proportions.
 
-- 当累计货量达到 `VEHICLE_CAPACITY = 1000`，生成满载任务；
-- 任务最早发运时间为达到容量的时间点；
-- 最晚发运时间为线路发运节点；
-- 窗口结束仍未满载的货量形成尾货任务。
+This baseline is intentionally lightweight. It keeps the full experiment runnable while leaving a clean plugin path for an LSTM-MLP or external forecasting model.
 
-尾货串点遵循论文约束：
+## 5. Task Generation
 
-- 同一始发场地；
-- 同一发运波次；
-- 目的地数量不超过 3；
-- 总货量不超过车辆容量；
-- 组合后的最早时间不晚于最晚时间。
+Dispatch tasks are generated in two layers:
 
-若安装 OR-Tools，小规模尾货组可用集合覆盖求解；否则使用贪心合并策略，按容量利用率尽量拼满。
+- Full-load tasks for large route-volume chunks.
+- Tail-load tasks for remaining volume.
 
-## 6. CP-SAT 调度模型
+Tail tasks can be consolidated with milk-run constraints. The generator supports several set-cover scoring strategies:
 
-### 6.1 决策变量
+- `min_count`
+- `saving_aware`
+- `cost_aware`
+- `duration_aware`
+- `fill_aware`
 
-对每个任务 `i`：
+The current performance configuration uses `cost_aware` with exhaustive candidates. A beam candidate mode is available for controlled search when the candidate space grows.
 
-- `start_i`：任务发运时间；
-- `duration_i`：车辆占用时长；
-- `use_container_i`：是否使用标准容器；
-- `external_i`：是否外部承运；
-- `assign_i_v`：任务是否分配给自有车辆 `v`。
+## 6. Solver and Repair
 
-对每辆自有车 `v`：
+The solver backend has three fallback levels:
 
-- `vehicle_used_v`：是否被使用；
-- 可选 interval：用于 `NoOverlap` 防止同车任务时间冲突。
+1. CP-SAT portfolio over deterministic seeds.
+2. Deterministic heuristic fallback.
+3. Post-solve external-carrier repair.
 
-### 6.2 关键约束
+The CP-SAT model assigns each generated task to either a self-owned vehicle or an external carrier. It respects:
 
-- 每个任务必须由一辆自有车或外部承运完成；
-- 发运时间满足任务时间窗；
-- 同一自有车上的任务区间不得重叠；
-- 容器任务货量不得超过容器容量；
-- 外部承运任务不得使用容器；
-- 容器会缩短装卸时间，从而改变车辆占用时长。
+- Dispatch time windows.
+- Vehicle non-overlap.
+- Vehicle capacity.
+- Milk-run stop limits and compatibility.
+- Container capacity and handling time in problem 3.
+- No-container rule for external carriers.
 
-### 6.3 目标函数
+The repair pass searches for cheaper feasible schedules by:
 
-采用论文中的加权多目标思想：
+- Converting external tasks into self-owned vehicle gaps.
+- Swapping high-saving external tasks with lower-saving self-owned tasks.
+- Relocating blocker tasks when a high-saving external task can use the released self-owned slot.
 
-```text
-minimize
-  w_cost * total_cost
-  - w_turnover * own_task_count
-  + w_fill * unused_capacity
-```
+## 7. Experiment Outputs
 
-其中：
+Each full D-problem experiment writes:
 
-- `total_cost` 包括自有车固定成本、自有车变动成本、外部承运成本；
-- `own_task_count` 作为自有车周转率的代理项；
-- `unused_capacity` 用于鼓励更高装载率。
+- `result_table_1.xlsx`
+- `result_table_2.xlsx`
+- `result_table_3.xlsx`
+- `result_table_4.xlsx`
+- `experiment_summary.json`
+- `experiment_report.md`
+- `constraint_audit.json`
+- `constraint_audit.md`
+- `sensitivity_analysis.csv`
+- `sensitivity_analysis.xlsx`
+- `focus_routes_report.md`
+- `gantt_problem2.png`
+- `gantt_problem3.png`
+- `sensitivity_on_time.png`
 
-## 7. 当前 MVP 运行结果
+The summary JSON is the main machine-readable artifact. It includes experiment settings, data statistics, KPIs, paper benchmark gaps, agent trace, audit status, sensitivity results, repair warnings, and optional W&B status.
 
-在 `examples/sample_instance.json` 上，当前环境未安装 OR-Tools，因此系统自动使用启发式求解器。端到端烟测可以得到：
+## 8. Baseline Comparison
 
-- 求解状态：`FEASIBLE`
-- 运输任务数：9
-- 已分配任务数：9
-- 外部承运任务数：0
-- 可解释输出包含两条重点线路的发运时间、车辆、货量和容器使用情况。
+The project compares four kinds of rows:
 
-这证明工程链路已经打通：自然语言需求 → 结构化约束 → 任务生成 → 求解 → KPI → 解释。
+- Paper reference KPIs.
+- Current multi-agent CP-SAT portfolio run.
+- Heuristic-only run.
+- Optional legacy pipeline summary.
 
-## 8. GitHub 交付计划
+Latest validated benchmark:
 
-### 8.1 第一阶段：MVP 仓库
+| Scenario | Problem 2 Cost | Problem 2 Turnover | Problem 2 External Tasks | Problem 3 Cost | Problem 3 Turnover | Problem 3 External Tasks |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Paper reference | 56776 | 2.49 | n/a | 47106 | 2.62 | n/a |
+| Current multi-agent | 67701 | 3.1727 | 227 | 67547 | 3.1818 | 226 |
+| Heuristic-only | 69577 | 3.0545 | 240 | 69577 | 3.0545 | 240 |
+| Legacy pipeline | 71806 | 3.1636 | 228 | 71806 | 3.1636 | 228 |
 
-- 完成当前 Python 包结构；
-- 提供样例数据与自然语言请求；
-- 提供 CLI；
-- 提供烟测脚本和基础单元测试；
-- 提供中文 README 与技术报告。
+The current multi-agent system is not yet an exact paper reproduction. It is a stronger engineering baseline than the legacy pipeline and provides a clearer optimization surface for future improvements.
 
-### 8.2 第二阶段：论文数据复现
+## 9. W&B Tracking
 
-- 将原始附件表转换为统一输入格式；
-- 复现问题二和问题三的关键 KPI；
-- 对比论文结果中的总成本、自有车周转率和重点线路调度表。
+W&B integration is optional. When enabled, the experiment logs:
 
-### 8.3 第三阶段：真实 LLM 接入
+- Problem 2 and problem 3 total cost.
+- Self-owned vehicle turnover.
+- External-carrier task count.
+- Container task count.
+- Constraint violation and warning counts.
+- Sensitivity metrics.
+- Agent trace length.
+- Core output files as an artifact.
 
-- 将需求解析 Prompt 固化为 JSON Schema；
-- 增加解析结果校验和重试；
-- 将模型调用日志、解析置信度和人工确认流程加入系统。
+The config `experiments/d_problem_wandb.yaml` defaults to `wandb_mode: offline`, which is suitable for local reproducible runs. If `wandb` is missing or authentication fails, the experiment still completes and records the reason under `tracking` in `experiment_summary.json`.
 
-### 8.4 第四阶段：鲁棒性与可视化
+## 10. Current Limitations
 
-- 实现预测总量偏差仿真；
-- 实现时间漂移仿真；
-- 输出 KPI 曲线、热力图和甘特图；
-- 增加 Web API 和前端展示。
+- Forecasting is still a statistical baseline, not the final LSTM-MLP model.
+- The CP-SAT model is tuned for a reproducible engineering baseline, not paper-exact reconstruction.
+- Current task generation still leaves a cost gap against the paper reference.
+- W&B is optional and not part of CI because the repository should remain runnable without online credentials.
 
-## 9. 风险与改进方向
+## 11. Next Research Directions
 
-- 当前样例是论文场景的简化数据，尚未直接读取全部附件；
-- 启发式求解只能保证可行性，不保证全局最优；
-- CP-SAT 目标函数仍需根据真实成本口径继续校准；
-- 串点旅行时间目前采用简化估算；
-- LLM 输出需要更强的 Schema 校验和安全边界。
+1. Add an LSTM-MLP forecast plugin and compare it against the statistical baseline.
+2. Improve task-generation neighborhoods for tail-load consolidation.
+3. Add stronger repair neighborhoods for multi-task exchanges.
+4. Tune objective weights against paper reference and operational KPIs.
+5. Extend API and report views for interactive demonstration.
 
-## 10. 结论
-
-本项目已经完成从论文模型到工程 MVP 的第一步转化。系统保留了论文的核心方法：预测货量转运输任务、尾货串点、约束规划车辆调度、容器决策和多目标优化。同时采用多 Agent 架构，把自然语言理解、约束校验、可验证求解、方案解释和异常修复拆分为清晰模块，为后续扩展到真实数据、GitHub 发布和完整技术报告奠定了基础。
-
-## 11. 第一批真实数据实验进展
-
-已接入 `D题/附件1-5.xlsx` 与 `D题/结果表1-4.xlsx` 模板，并新增一键实验命令：
-
-```powershell
-$env:PYTHONPATH="src"
-D:\miniconda3\python.exe -m shorthaul_agent.cli run-experiment --data-dir D题 --output-dir outputs
-```
-
-当前实验输出：
-
-- `outputs/result_table_1.xlsx`
-- `outputs/result_table_2.xlsx`
-- `outputs/result_table_3.xlsx`
-- `outputs/result_table_4.xlsx`
-- `outputs/experiment_summary.json`
-- `outputs/experiment_report.md`
-
-第一批结果校验：
-
-- 结果表 1：280 行，货量无缺失；
-- 结果表 2：10080 行，包裹量无缺失；
-- 结果表 3：576 行；
-- 结果表 4：576 行；
-- 两条重点线路 `场地3 - 站点83 - 0600` 和 `场地3 - 站点83 - 1400` 均有预测与调度结果。
-- 问题 4 敏感性分析输出 10 个场景，生成 `sensitivity_analysis.csv` 与 `sensitivity_analysis.xlsx`。
-
-当前 CP-SAT 实验 KPI：
-
-| 项目 | 求解状态 | 总成本 | 自有车周转率 | 车辆均包裹 | 外部承运数 |
-| --- | --- | ---: | ---: | ---: | ---: |
-| 问题 2 | FEASIBLE | 72028 | 3.17 | 1497.46 | 227 |
-| 问题 3 | FEASIBLE_BASELINE | 72028 | 3.17 | 1497.46 | 227 |
-
-后续校准中已加入 CP-SAT 目标尺度修正和问题三非退化保护。标准容器是可选技术，因此问题二可行解也应是问题三可行基线；当 CP-SAT 在限定时间内给出的容器方案成本更高时，系统采用问题二方案转换得到的容器基线。最新实验中问题三使用该基线，成本与问题二持平，并有 96 个自有车任务可使用容器，装载率从约 87.6% 提升至约 90.6%。
-
-与论文参考值仍有差距，主要原因是当前预测模型为统计基线，且未完全复刻论文中的 LSTM-MLP 预测与权重搜索。下一批增强可以继续做预测模型对照和多目标权重网格搜索。
-
-问题 4 当前结论与论文方向一致：成本在固定方案下相对稳定，但服务水平对需求偏高和时间延迟敏感。当前最差场景为到达时间整体延迟 90 分钟，按时装载率下降至约 68.2%，滞留量上升至 160525；总量增加 30% 时按时装载率约 84.3%，滞留量 103278。时间提前场景对服务指标影响较小，说明静态调度方案对“晚到货”的脆弱性显著高于“早到货”。
-
-## 12. 服务化接口
-
-项目新增可选 FastAPI 服务层，用于把调度 Agent 暴露为 HTTP 服务。安装 `api` extra 后运行：
-
-```powershell
-uvicorn shorthaul_agent.api:app --host 127.0.0.1 --port 8000
-```
-
-接口包括健康检查、单次调度、D 题实验触发、实验配置列表、报告读取和输出校验。服务层不改变优化模型，只作为 CLI 之外的集成入口，便于后续接入前端、自动评测平台或调度系统。
-
-## 13. 持续集成
-
-已新增 GitHub Actions 工作流 `.github/workflows/ci.yml`。CI 在 Windows 环境下安装项目依赖，执行格式检查、包编译、烟测和单元测试。格式检查由 `scripts/format_check.py` 完成，只检查 Git 追踪文件，避免本地数据集、输出表和缓存影响结果。
-
-本地已完成以下验证：
-
-- `D:\miniconda3\python.exe scripts\format_check.py`
-- `D:\miniconda3\python.exe -m compileall -q src tests scripts`
-- `D:\miniconda3\python.exe scripts\smoke_test.py`
-- 直接调用 `tests` 中的测试函数
-
-当前 base 环境没有安装 pytest，因此本地未直接执行 `pytest` 命令；GitHub Actions 会在 CI 中安装 `.[dev]` 后运行 pytest。
-
-## 14. 五项路线完成情况
-
-项目已完成 README 中列出的五项阶段性路线：
-
-1. 真实附件数据接入与结果表副本导出；
-2. CP-SAT 车辆调度模型增强；
-3. 预测偏差鲁棒性仿真；
-4. FastAPI 服务、甘特图和重点线路解释；
-5. GitHub Actions 质量检查。
-# Baseline Comparison Experiment
-
-The next experimental stage treats the previous D-problem reproduction as a benchmark instead of the final goal. The command `compare-baselines` executes the current multi-agent workflow and a heuristic-only workflow, then joins them with the paper reference KPIs and, when available, a legacy experiment summary from the pre-agent commit.
-
-The comparison table contains one row per scenario and problem, including total cost, own-vehicle turnover, average packages per vehicle, external task count, container task count, constraint audit status, agent trace length, robustness metrics, and gaps against the paper reference values. Problem 3 is reported in two views: the pure CP-SAT container candidate and the repaired non-regression baseline, so container degradation is visible instead of hidden.
-
-This stage is designed to answer two questions:
-- Optimization quality: which solver/scenario currently has the lowest cost and how far is it from the paper reference?
-- Architecture value: does the multi-agent system add auditability, repair metadata, and stable experiment artifacts without breaking the reproduction pipeline?
-
-The generated artifacts are `comparison_table.xlsx`, `comparison_summary.json`, `comparison_report.md`, `cost_turnover_comparison.png`, and `robustness_comparison.png` under `outputs_baseline_comparison/`.
-
-# Performance Improvement: Task Generation Search And Repair
-
-The current optimization phase improves task generation itself while keeping the D-problem data adapter, statistical forecast model, and hard constraints unchanged. The performance config `experiments/d_problem_performance.yaml` now sets `tail_cover_strategy: cost_aware`: tail-load set cover still minimizes the number of generated tail tasks first, then breaks ties by preferring candidates with lower external-carrier and route-cost exposure.
-
-The generator also supports `tail_candidate_strategy: beam`. The beam mode preserves all singleton tail tasks for coverage, then expands only the highest-scoring multi-stop candidates under the active tail-cover objective. This gives the project a controlled search knob when exhaustive candidate enumeration becomes too expensive or noisy.
-
-The solver layer is now a deterministic CP-SAT portfolio over seeds `[0, 7, 19]`. The performance configuration uses one CP-SAT worker and deterministic-time limits, and the solver agent selects the feasible schedule with the lowest measured total cost. The repair pass evaluates both swap-only and blocker-relocation repair paths, then keeps the lowest true-cost feasible schedule. The relocation path can move a lower-value self-owned blocker into another feasible gap before assigning a high-saving external task to the released self-owned slot.
-
-Formal experiments can reuse an audited task-generation tuning artifact by setting `task_generation_portfolio_artifact` to a prior `task_generation_grid_summary.json`. The experiment then records the source artifact and selected generation strategy in `experiment_summary.json`, which makes the tuning-to-benchmark handoff explicit.
-
-Latest validated comparison:
-
-| Scenario | Problem 2 Cost | Problem 3 Cost | Turnover | External Tasks |
-| --- | ---: | ---: | ---: | ---: |
-| Paper reference | 56776 | 47106 | 2.49 / 2.62 | n/a |
-| Legacy pipeline | 71806 | 71806 | 3.1636 | 228 |
-| Current multi-agent deterministic cost-aware generation + repair | 67701 | 67547 | 3.1727 / 3.1818 | 227 / 226 |
-| Heuristic fallback + repair | 69577 | 69577 | 3.0545 | 240 |
-| Pure CP-SAT problem 3 candidate | n/a | 67547 | 3.1818 | n/a |
-
-Task-generation search results:
-
-| Search Run | Problem 2 Cost | Problem 3 Cost | External Tasks | Constraint Status |
-| --- | ---: | ---: | ---: | --- |
-| Short grid best: exhaustive_cost_aware | 67475 | 67475 | 225 | pass |
-| Short grid best: beam_saving_aware | 67475 | 67475 | 225 | pass |
-| Full standalone portfolio: exhaustive_cost_aware | 67672 | 67528 | 227 / 226 | pass |
-| Formal deterministic comparison: exhaustive_cost_aware | 67701 | 67547 | 227 / 226 | pass |
-
-This keeps the current multi-agent architecture in measurable optimization territory: the formal comparison run decreases cost by `4105` for problem 2 and `4259` for problem 3 against the legacy pipeline while preserving constraint audit status `pass` and the 12-step multi-agent execution trace. The latest repair stage improved problem 2 by relocating one blocker task and reducing external tasks from 228 to 227. The next optimization target is to reduce the remaining gap to the paper reference by improving forecast calibration and adding stronger multi-task repair neighborhoods.

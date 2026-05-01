@@ -31,6 +31,7 @@ LLM + constraint programming system for short-haul transportation dispatch. The 
 |   |-- solvers/                   # CP-SAT, heuristic, and task-generation logic
 |   `-- models.py                  # Shared data structures
 |-- tests/                         # Unit and integration tests
+|-- MC25002885-D.pdf               # Original modeling paper/report PDF
 |-- pyproject.toml
 `-- README.md
 ```
@@ -125,11 +126,11 @@ The project is an engineering reproduction and multi-agent optimization baseline
 | Scenario | Problem 2 Cost | Problem 2 Turnover | Problem 3 Cost | Problem 3 Turnover |
 | --- | ---: | ---: | ---: | ---: |
 | Paper reference | 56776 | 2.49 | 47106 | 2.62 |
-| Current multi-agent run | 67701 | 3.1727 | 67547 | 3.1818 |
+| Current multi-agent run | 67701 | 3.1727 | 67537 | 3.1818 |
 | Heuristic-only run | 69577 | 3.0545 | 69577 | 3.0545 |
 | Legacy pipeline run | 71806 | 3.1636 | 71806 | 3.1636 |
 
-Compared with the legacy pipeline, the current multi-agent solver reduced cost by `4105` for problem 2 and `4259` for problem 3 in the latest comparison run.
+Compared with the legacy pipeline, the current multi-agent solver reduced cost by `4105` for problem 2 and `4269` for problem 3 in the latest comparison run. The latest task-generation sweep found `exhaustive_duration_aware` as the best short-run problem-2 strategy, with problem-2 cost `67615` and problem-3 cost `67570`.
 
 ## Optional W&B Tracking
 
@@ -158,6 +159,13 @@ When W&B is not installed or cannot authenticate, the experiment still finishes.
 
 For authenticated online runs, use `experiments/d_problem_wandb_online.yaml`. It is the same performance experiment with `wandb_mode: online`.
 
+On Windows, use UTF-8 mode for online W&B runs if the workspace path contains non-ASCII characters:
+
+```powershell
+$env:PYTHONUTF8="1"
+$env:PYTHONIOENCODING="utf-8"
+```
+
 ## API Showcase
 
 ```powershell
@@ -181,7 +189,7 @@ GitHub Actions runs on `push` and `pull_request`:
 
 ```powershell
 python scripts/format_check.py
-python -m compileall -q src
+python -m compileall -q src tests scripts
 python scripts/smoke_test.py
 pytest
 ```

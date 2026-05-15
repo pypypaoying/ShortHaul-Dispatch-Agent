@@ -413,21 +413,21 @@ DASHBOARD_HTML = r"""<!doctype html>
       <section>
         <h2 data-i18n="uploadTitle">智能接入并运行</h2>
         <div class="body">
-          <div class="hint" data-i18n="uploadIntro">上传业务系统导出的 Excel、CSV、JSON，或直接粘贴表格文本。数据接入 Agent 会自动识别字段、对齐调度模型输入，再调用优化器。</div>
+          <div class="hint" data-i18n="uploadIntro">上传业务系统导出的一个或多个 Excel、CSV、JSON，或直接粘贴表格文本。数据接入 Agent 会自动识别字段、对齐调度模型输入，再调用优化器。</div>
           <div style="margin-top:12px">
             <label for="request" data-i18n="requestLabel">调度需求</label>
             <textarea id="request">请基于上传数据生成短途运输调度方案，目标是在满足约束前提下降低成本并提升自有车周转效率。</textarea>
           </div>
           <div class="guide-grid">
-            <div class="guide-step"><strong data-i18n="guideStep1Title">1 上传数据</strong><span data-i18n="guideStep1Body">直接选择业务系统导出的表，或把表格内容粘贴到文本框。</span></div>
+            <div class="guide-step"><strong data-i18n="guideStep1Title">1 上传数据</strong><span data-i18n="guideStep1Body">直接选择一批业务系统导出的表，或把表格内容粘贴到文本框。</span></div>
             <div class="guide-step"><strong data-i18n="guideStep2Title">2 Agent 对齐</strong><span data-i18n="guideStep2Body">Agent 自动识别车队、线路、货量、时间窗和约束字段。</span></div>
             <div class="guide-step"><strong data-i18n="guideStep3Title">3 优化求解</strong><span data-i18n="guideStep3Body">结构化输入通过校验后交给 CP-SAT / 启发式求解器。</span></div>
             <div class="guide-step"><strong data-i18n="guideStep4Title">4 查看结果</strong><span data-i18n="guideStep4Body">右侧展示 KPI、甘特图、外部承运和原始响应。</span></div>
           </div>
           <div class="file-grid">
             <div class="file-row">
-              <label for="dataFile" data-i18n="dataFile">业务数据文件</label>
-              <input id="dataFile" type="file" accept=".xlsx,.xlsm,.xls,.csv,.tsv,.txt,.json,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" />
+              <label for="dataFile" data-i18n="dataFile">业务数据文件（可多选）</label>
+              <input id="dataFile" type="file" multiple accept=".xlsx,.xlsm,.xls,.csv,.tsv,.txt,.json,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" />
             </div>
           </div>
           <div style="margin-top:12px">
@@ -544,16 +544,16 @@ DASHBOARD_HTML = r"""<!doctype html>
         requestLabel: "调度需求",
         scenarioHint: "普通用户可直接上传 Excel；高级入口用于调试 API payload 或做二次开发。",
         uploadTitle: "智能接入并运行",
-        uploadIntro: "上传业务系统导出的 Excel、CSV、JSON，或直接粘贴表格文本。数据接入 Agent 会自动识别字段、对齐调度模型输入，再调用优化器。",
+        uploadIntro: "上传业务系统导出的一个或多个 Excel、CSV、JSON，或直接粘贴表格文本。数据接入 Agent 会自动识别字段、对齐调度模型输入，再调用优化器。",
         guideStep1Title: "1 上传数据",
-        guideStep1Body: "直接选择业务系统导出的表，或把表格内容粘贴到文本框。",
+        guideStep1Body: "直接选择一批业务系统导出的表，或把表格内容粘贴到文本框。",
         guideStep2Title: "2 Agent 对齐",
         guideStep2Body: "Agent 自动识别车队、线路、货量、时间窗和约束字段。",
         guideStep3Title: "3 优化求解",
         guideStep3Body: "结构化输入通过校验后交给 CP-SAT / 启发式求解器。",
         guideStep4Title: "4 查看结果",
         guideStep4Body: "右侧展示 KPI、甘特图、外部承运和原始响应。",
-        dataFile: "业务数据文件",
+        dataFile: "业务数据文件（可多选）",
         rawDataText: "粘贴数据（可选）",
         rawDataPlaceholder: "可粘贴 Excel 复制出来的表格、CSV 文本、JSON 或业务系统导出片段。",
         agentConfigTitle: "数据接入 Agent API 配置",
@@ -624,16 +624,16 @@ DASHBOARD_HTML = r"""<!doctype html>
         requestLabel: "Scheduling request",
         scenarioHint: "Most users can upload Excel directly. Advanced input is for API payload debugging or custom development.",
         uploadTitle: "Smart ingest and run",
-        uploadIntro: "Upload an Excel, CSV, JSON export, or paste table text. The Data Ingestion Agent aligns fields to the scheduling model before optimization.",
+        uploadIntro: "Upload one or more Excel, CSV, or JSON exports, or paste table text. The Data Ingestion Agent aligns fields to the scheduling model before optimization.",
         guideStep1Title: "1 Add data",
-        guideStep1Body: "Select a business export, or paste table contents into the text box.",
+        guideStep1Body: "Select a batch of business exports, or paste table contents into the text box.",
         guideStep2Title: "2 Agent aligns",
         guideStep2Body: "The agent detects fleets, routes, demand, time windows, and constraints.",
         guideStep3Title: "3 Optimize",
         guideStep3Body: "Validated structured input is sent to CP-SAT / heuristic solvers.",
         guideStep4Title: "4 Inspect result",
         guideStep4Body: "KPIs, Gantt chart, external carriers, and raw response appear on the right.",
-        dataFile: "Business data file",
+        dataFile: "Business data files",
         rawDataText: "Paste data (optional)",
         rawDataPlaceholder: "Paste copied Excel tables, CSV text, JSON, or business-system export snippets.",
         agentConfigTitle: "Data Ingestion Agent API",
@@ -819,7 +819,7 @@ DASHBOARD_HTML = r"""<!doctype html>
       $("runUpload").disabled = true;
       setStatusKey("statusUploading");
       try {
-        const dataFile = $("dataFile").files[0];
+        const dataFiles = Array.from($("dataFile").files || []);
         const payloadFile = $("payloadFile").files[0];
         const rawDataText = $("rawDataText").value.trim();
         const formData = new FormData();
@@ -830,11 +830,11 @@ DASHBOARD_HTML = r"""<!doctype html>
         formData.append("data_agent_base_url", $("agentBaseUrl").value || "");
         formData.append("data_agent_api_key", $("agentApiKey").value || "");
 
-        if (dataFile) {
+        if (dataFiles.length) {
           formData.append("request", $("request").value || "请根据上传数据生成短途运输调度方案。");
           formData.append("instance_id", $("uploadInstanceId").value || "uploaded-instance");
           formData.append("date", $("uploadDate").value || "");
-          formData.append("data_file", dataFile);
+          dataFiles.forEach((file) => formData.append("data_file", file));
         } else if (rawDataText) {
           formData.append("request", $("request").value || "请根据上传数据生成短途运输调度方案。");
           formData.append("instance_id", $("uploadInstanceId").value || "uploaded-instance");

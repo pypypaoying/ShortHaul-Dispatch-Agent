@@ -46,6 +46,7 @@ def test_dashboard_defaults_to_chinese_and_has_language_selector():
     assert 'id="language"' in response.text
     assert 'id="runUpload"' in response.text
     assert 'id="dataFile"' in response.text
+    assert 'id="dataFile" type="file" multiple' in response.text
     assert 'id="ganttFilter"' in response.text
     assert "仅外部承运" in response.text
 
@@ -189,6 +190,47 @@ def test_schedule_upload_data_agent_accepts_aligned_workbook(tmp_path):
     data = response.json()
     assert data["upload"]["source"] == "data_agent_workbook"
     assert data["upload"]["data_agent"]["mode"] == "deterministic"
+    assert data["solution"]["status"] == "FEASIBLE"
+
+
+def test_schedule_upload_data_agent_accepts_multiple_standard_files():
+    pytest.importorskip("multipart")
+    app = create_app()
+    client = TestClient(app)
+    csv_dir = ROOT / "examples" / "csv_template"
+
+    with ExitStack() as stack:
+        fleets = stack.enter_context((csv_dir / "fleets.csv").open("rb"))
+        routes = stack.enter_context((csv_dir / "routes.csv").open("rb"))
+        forecast = stack.enter_context((csv_dir / "forecast.csv").open("rb"))
+        pairs = stack.enter_context((csv_dir / "milk_run_pairs.csv").open("rb"))
+        response = client.post(
+            "/schedule/upload",
+            data={
+                "request": "Schedule this uploaded file batch.",
+                "instance_id": "agent-multi-file-test",
+                "date": "2024-12-16",
+                "prefer_cpsat": "false",
+                "use_data_agent": "true",
+            },
+            files=[
+                ("data_file", ("fleets.csv", fleets, "text/csv")),
+                ("data_file", ("routes.csv", routes, "text/csv")),
+                ("data_file", ("forecast.csv", forecast, "text/csv")),
+                ("data_file", ("milk_run_pairs.csv", pairs, "text/csv")),
+            ],
+        )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["upload"]["source"] == "data_agent_files"
+    assert data["upload"]["data_agent"]["mode"] == "csv_bundle"
+    assert data["upload"]["files"] == [
+        "fleets.csv",
+        "routes.csv",
+        "forecast.csv",
+        "milk_run_pairs.csv",
+    ]
     assert data["solution"]["status"] == "FEASIBLE"
 
 

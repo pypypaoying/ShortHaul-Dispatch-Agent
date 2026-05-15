@@ -7,6 +7,7 @@ import os
 import re
 import tempfile
 from dataclasses import dataclass
+from io import BytesIO
 from pathlib import Path
 from typing import Any
 
@@ -16,9 +17,22 @@ from shorthaul_agent.external_io import (
     WORKBOOK_SHEETS,
     _deep_merge,
     _write_workbook_rows,
+    build_payload_from_csv_dir,
     build_payload_from_workbook,
 )
 from shorthaul_agent.models import Instance
+
+
+WORKBOOK_SUFFIXES = {".xlsx", ".xlsm", ".xls"}
+TEXT_SUFFIXES = {".csv", ".tsv", ".txt", ".json"}
+PAYLOAD_FILENAMES = {"payload.json", "schedule_payload.json"}
+CSV_FILE_ALIASES = {
+    "fleets.csv": "fleets.csv",
+    "routes.csv": "routes.csv",
+    "forecast.csv": "forecast.csv",
+    "milk_run_pairs.csv": "milk_run_pairs.csv",
+    "config_overrides.json": "config_overrides.json",
+}
 
 
 @dataclass
@@ -49,6 +63,49 @@ class DataIngestionAgent:
 
     def __init__(self, config: DataIngestionAgentConfig | None = None) -> None:
         self.config = config or DataIngestionAgentConfig.from_values()
+
+    def build_payload_from_files(
+        self,
+        files: list[tuple[str, bytes]],
+        request_text: str,
+        *,
+        instance_id: str = "agent-ingested-instance",
+        date: str = "",
+        prefer_cpsat: bool = True,
+        config_overrides: dict[str, Any] | None = None,
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        """Build a schedule payload from one or more uploaded business files."""
+        cleaned = [(Path(name).name, content) for name, content in files if name and content]
+        if not cleaned:
+            raise ValueError("No data files were provided.")
+
+        deterministic = self._try_deterministic_file_batch(
+            cleaned,
+            request_text,
+            instance_id=instance_id,
+            date=date,
+            prefer_cpsat=prefer_cpsat,
+            config_overrides=config_overrides,
+        )
+        if deterministic is not None:
+            return deterministic
+
+        if not self.config.api_key:
+            raise ValueError(
+                "多文件业务数据无法在本地自动识别。请配置数据接入 Agent API Key，"
+                "或上传标准 payload、标准 CSV 文件组、单个已规整工作簿。"
+            )
+
+        payload = self._payload_from_files_with_llm(cleaned, request_text, instance_id, date, prefer_cpsat)
+        if config_overrides:
+            payload["config_overrides"] = _deep_merge(payload.get("config_overrides", {}), config_overrides)
+        Instance.from_dict(payload["instance"])
+        return payload, {
+            "mode": "llm_file_batch_payload",
+            "model": self.config.model,
+            "files": [name for name, _ in cleaned],
+            "warnings": [],
+        }
 
     def build_payload_from_workbook(
         self,
@@ -127,6 +184,74 @@ class DataIngestionAgent:
         Instance.from_dict(payload["instance"])
         return payload, {"mode": "llm_text_payload", "model": self.config.model, "warnings": []}
 
+    def _try_deterministic_file_batch(
+        self,
+        files: list[tuple[str, bytes]],
+        request_text: str,
+        *,
+        instance_id: str,
+        date: str,
+        prefer_cpsat: bool,
+        config_overrides: dict[str, Any] | None,
+    ) -> tuple[dict[str, Any], dict[str, Any]] | None:
+        for filename, content in files:
+            if filename.lower() in PAYLOAD_FILENAMES:
+                direct = self._try_direct_json_payload(
+                    content.decode("utf-8-sig"),
+                    request_text,
+                    prefer_cpsat,
+                    config_overrides,
+                )
+                if direct is not None:
+                    return direct, {"mode": "direct_json_file", "model": "", "warnings": []}
+
+        csv_bundle = {
+            CSV_FILE_ALIASES[filename.lower()]: content
+            for filename, content in files
+            if filename.lower() in CSV_FILE_ALIASES
+        }
+        if {"fleets.csv", "routes.csv", "forecast.csv"}.issubset(csv_bundle):
+            with tempfile.TemporaryDirectory(prefix="shorthaul-agent-csv-batch-") as tmp_dir:
+                tmp_path = Path(tmp_dir)
+                for filename, content in csv_bundle.items():
+                    (tmp_path / filename).write_bytes(content)
+                payload = build_payload_from_csv_dir(
+                    tmp_path,
+                    request_text,
+                    instance_id=instance_id,
+                    date=date,
+                    prefer_cpsat=prefer_cpsat,
+                    config_overrides=config_overrides,
+                )
+            Instance.from_dict(payload["instance"])
+            return payload, {"mode": "csv_bundle", "model": "", "warnings": []}
+
+        if len(files) == 1:
+            filename, content = files[0]
+            suffix = Path(filename.lower()).suffix
+            if suffix in WORKBOOK_SUFFIXES:
+                with tempfile.TemporaryDirectory(prefix="shorthaul-agent-workbook-") as tmp_dir:
+                    workbook_path = Path(tmp_dir) / filename
+                    workbook_path.write_bytes(content)
+                    return self.build_payload_from_workbook(
+                        workbook_path,
+                        request_text,
+                        instance_id=instance_id,
+                        date=date,
+                        prefer_cpsat=prefer_cpsat,
+                        config_overrides=config_overrides,
+                    )
+            if suffix in TEXT_SUFFIXES:
+                return self.build_payload_from_text(
+                    content.decode("utf-8-sig"),
+                    request_text,
+                    instance_id=instance_id,
+                    date=date,
+                    prefer_cpsat=prefer_cpsat,
+                    config_overrides=config_overrides,
+                )
+        return None
+
     def _map_workbook_with_llm(self, workbook_path: Path) -> dict[str, Any]:
         summary = _workbook_summary(workbook_path)
         schema = {
@@ -166,6 +291,36 @@ class DataIngestionAgent:
             "缺失的装卸时间和成本可使用合理默认值。"
             f"instance_id={instance_id}, date={date}, prefer_cpsat={prefer_cpsat}。"
             f"调度需求：{request_text}\n用户数据：{raw_text[:12000]}"
+        )
+        payload = _extract_json_object(self._call_llm(prompt))
+        payload.setdefault("request", request_text)
+        payload.setdefault("prefer_cpsat", prefer_cpsat)
+        payload.setdefault("config_overrides", {})
+        payload.setdefault("instance", {})
+        payload["instance"].setdefault("id", instance_id)
+        payload["instance"].setdefault("date", date)
+        return payload
+
+    def _payload_from_files_with_llm(
+        self,
+        files: list[tuple[str, bytes]],
+        request_text: str,
+        instance_id: str,
+        date: str,
+        prefer_cpsat: bool,
+    ) -> dict[str, Any]:
+        summary = _file_batch_summary(files)
+        prompt = (
+            "你是 ShortHaul Dispatch Agent 的数据接入 Agent。"
+            "用户一次上传了多个业务数据文件，请根据文件摘要把它们整合为 /schedule API payload。"
+            "只输出 JSON，不要解释。payload 必须包含 request, prefer_cpsat, config_overrides, instance。"
+            "instance 必须包含 id, date, fleets, routes, forecast。"
+            "字段含义：fleets 使用 id、vehicle_count；routes 使用 id、origin、destination、wave、"
+            "latest_dispatch_minute、travel_minutes、fleet_id；forecast 使用 route_id、minute、volume。"
+            "如果多文件中存在容量、容器、串点、外部承运或目标权重设置，请写入 config_overrides。"
+            "缺失的装卸时间和成本可使用合理默认值。"
+            f"instance_id={instance_id}, date={date}, prefer_cpsat={prefer_cpsat}。"
+            f"调度需求：{request_text}\n文件摘要：{json.dumps(summary, ensure_ascii=False)}"
         )
         payload = _extract_json_object(self._call_llm(prompt))
         payload.setdefault("request", request_text)
@@ -249,6 +404,15 @@ class DataIngestionAgent:
 
 def _workbook_summary(path: Path) -> list[dict[str, Any]]:
     sheets = pd.read_excel(path, sheet_name=None)
+    return _summarize_sheets(sheets)
+
+
+def _workbook_bytes_summary(content: bytes) -> list[dict[str, Any]]:
+    sheets = pd.read_excel(BytesIO(content), sheet_name=None)
+    return _summarize_sheets(sheets)
+
+
+def _summarize_sheets(sheets: dict[str, pd.DataFrame]) -> list[dict[str, Any]]:
     summary = []
     for sheet_name, frame in sheets.items():
         sample = frame.dropna(how="all").head(5)
@@ -262,6 +426,41 @@ def _workbook_summary(path: Path) -> list[dict[str, Any]]:
                 "sample_rows": rows,
             }
         )
+    return summary
+
+
+def _file_batch_summary(files: list[tuple[str, bytes]]) -> list[dict[str, Any]]:
+    summary = []
+    for filename, content in files:
+        suffix = Path(filename.lower()).suffix
+        item: dict[str, Any] = {"file": filename, "suffix": suffix, "bytes": len(content)}
+        try:
+            if suffix in WORKBOOK_SUFFIXES:
+                item["sheets"] = _workbook_bytes_summary(content)
+            elif suffix in {".csv", ".tsv"}:
+                separator = "\t" if suffix == ".tsv" else ","
+                frame = pd.read_csv(BytesIO(content), sep=separator)
+                item["columns"] = [str(column) for column in frame.columns]
+                item["sample_rows"] = [
+                    {str(key): _preview_value(value) for key, value in row.items()}
+                    for row in frame.dropna(how="all").head(8).to_dict(orient="records")
+                ]
+            elif suffix == ".json":
+                text = content.decode("utf-8-sig", errors="replace")
+                item["text_preview"] = text[:5000]
+                try:
+                    parsed = json.loads(text)
+                    item["json_type"] = type(parsed).__name__
+                    if isinstance(parsed, dict):
+                        item["json_keys"] = list(parsed.keys())[:40]
+                except json.JSONDecodeError:
+                    pass
+            else:
+                item["text_preview"] = content.decode("utf-8-sig", errors="replace")[:5000]
+        except Exception as exc:
+            item["read_error"] = str(exc)
+            item["text_preview"] = content.decode("utf-8-sig", errors="replace")[:2000]
+        summary.append(item)
     return summary
 
 

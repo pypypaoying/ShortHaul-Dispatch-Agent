@@ -44,7 +44,6 @@ PAYLOAD_UPLOAD_FILENAMES = {"payload.json", "schedule_payload.json"}
 WORKBOOK_UPLOAD_FIELDS = {"workbook", "xlsx", "excel", "scenario_workbook"}
 WORKBOOK_UPLOAD_SUFFIXES = {".xlsx", ".xlsm", ".xls"}
 DATA_AGENT_UPLOAD_FIELDS = {"data_file", "agent_file", "business_file", "user_data"}
-TEXT_UPLOAD_SUFFIXES = {".csv", ".txt", ".tsv", ".json"}
 
 
 def create_app():
@@ -264,6 +263,7 @@ async def _payload_from_multipart_form(form: Any) -> tuple[Dict[str, Any], Dict[
 
     uploaded_payload: Optional[Dict[str, Any]] = None
     uploaded_workbook: Optional[tuple[str, bytes]] = None
+    data_agent_uploads: list[tuple[str, bytes]] = []
     uploaded_files: Dict[str, bytes] = {}
     uploaded_names: list[str] = []
     for field_name, value in _form_items(form):
@@ -278,12 +278,8 @@ async def _payload_from_multipart_form(form: Any) -> tuple[Dict[str, Any], Dict[
         field_key = str(field_name).lower()
         suffix = Path(filename_key).suffix
         uploaded_names.append(filename)
-        if field_key in DATA_AGENT_UPLOAD_FIELDS and suffix in WORKBOOK_UPLOAD_SUFFIXES:
-            uploaded_workbook = (filename, content)
-            use_data_agent = True
-            continue
-        if field_key in DATA_AGENT_UPLOAD_FIELDS and suffix in TEXT_UPLOAD_SUFFIXES:
-            raw_data_text = content.decode("utf-8-sig")
+        if field_key in DATA_AGENT_UPLOAD_FIELDS:
+            data_agent_uploads.append((filename, content))
             use_data_agent = True
             continue
         if field_key in PAYLOAD_UPLOAD_FIELDS or filename_key in PAYLOAD_UPLOAD_FILENAMES:
@@ -303,6 +299,21 @@ async def _payload_from_multipart_form(form: Any) -> tuple[Dict[str, Any], Dict[
         payload["prefer_cpsat"] = prefer_cpsat
         payload["config_overrides"] = _merge_dicts(payload.get("config_overrides", {}), form_overrides)
         return payload, {"source": "payload_json", "files": uploaded_names}
+
+    if data_agent_uploads:
+        payload, agent_meta = DataIngestionAgent(agent_config).build_payload_from_files(
+            data_agent_uploads,
+            request_text,
+            instance_id=instance_id,
+            date=date,
+            prefer_cpsat=prefer_cpsat,
+            config_overrides=form_overrides,
+        )
+        return payload, {
+            "source": _data_agent_upload_source(data_agent_uploads),
+            "files": [name for name, _ in data_agent_uploads],
+            "data_agent": agent_meta,
+        }
 
     if uploaded_workbook is not None:
         filename, content = uploaded_workbook
@@ -399,3 +410,12 @@ def _merge_dicts(base: Dict[str, Any], overrides: Dict[str, Any]) -> Dict[str, A
         else:
             merged[key] = value
     return merged
+
+
+def _data_agent_upload_source(files: list[tuple[str, bytes]]) -> str:
+    if len(files) != 1:
+        return "data_agent_files"
+    suffix = Path(files[0][0].lower()).suffix
+    if suffix in WORKBOOK_UPLOAD_SUFFIXES:
+        return "data_agent_workbook"
+    return "data_agent_text"

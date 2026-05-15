@@ -40,6 +40,8 @@ def test_dashboard_defaults_to_chinese_and_has_language_selector():
     assert "加载示例场景" in response.text
     assert 'id="language"' in response.text
     assert 'id="runUpload"' in response.text
+    assert 'id="ganttFilter"' in response.text
+    assert "仅外部承运" in response.text
 
 
 def test_api_exposes_external_data_contract():

@@ -256,6 +256,16 @@ DASHBOARD_HTML = r"""<!doctype html>
     .metric span { color: var(--muted); display: block; font-size: 12px; margin-bottom: 6px; }
     .metric strong { font-size: 20px; }
     .chart-shell { height: 470px; overflow: auto; border-top: 1px solid var(--line); }
+    .chart-toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 10px 14px;
+      border-top: 1px solid var(--line);
+    }
+    .chart-toolbar select { width: 180px; }
+    .chart-summary { color: var(--muted); font-size: 12px; }
     svg { display: block; min-width: 860px; }
     .status { color: var(--muted); padding: 10px 14px; border-top: 1px solid var(--line); }
     .status.error { color: var(--danger); }
@@ -453,6 +463,15 @@ DASHBOARD_HTML = r"""<!doctype html>
       </section>
       <section>
         <h2 data-i18n="ganttTitle">调度甘特图</h2>
+        <div class="chart-toolbar">
+          <div class="chart-summary" id="ganttSummary"></div>
+          <select id="ganttFilter" aria-label="Gantt filter">
+            <option value="all" data-i18n="ganttAll">全部任务</option>
+            <option value="owned" data-i18n="ganttOwned">仅自有车</option>
+            <option value="external" data-i18n="ganttExternal">仅外部承运</option>
+            <option value="container" data-i18n="ganttContainer">仅容器任务</option>
+          </select>
+        </div>
         <div class="chart-shell"><svg id="gantt" width="1080" height="420"></svg></div>
       </section>
       <section>
@@ -507,6 +526,11 @@ DASHBOARD_HTML = r"""<!doctype html>
         instanceTitle: "场景 JSON",
         kpiTitle: "方案指标",
         ganttTitle: "调度甘特图",
+        ganttAll: "全部任务",
+        ganttOwned: "仅自有车",
+        ganttExternal: "仅外部承运",
+        ganttContainer: "仅容器任务",
+        ganttSummary: "显示任务 {shown}/{total}；车辆 {vehicles}；外部承运 {external}",
         rawTitle: "原始结果",
         onboardingTitle: "接入自己的数据",
         onboardingStep1: "准备 fleets.csv、routes.csv、forecast.csv，可选 milk_run_pairs.csv。",
@@ -569,6 +593,11 @@ DASHBOARD_HTML = r"""<!doctype html>
         instanceTitle: "Instance JSON",
         kpiTitle: "Solution KPIs",
         ganttTitle: "Dispatch Gantt",
+        ganttAll: "All tasks",
+        ganttOwned: "Owned vehicles",
+        ganttExternal: "External carrier",
+        ganttContainer: "Container tasks",
+        ganttSummary: "Showing {shown}/{total} tasks; vehicles {vehicles}; external {external}",
         rawTitle: "Raw solution",
         onboardingTitle: "Use your own data",
         onboardingStep1: "Prepare fleets.csv, routes.csv, forecast.csv, and optional milk_run_pairs.csv.",
@@ -830,12 +859,35 @@ DASHBOARD_HTML = r"""<!doctype html>
 
     function drawGantt(assignments) {
       const svg = $("gantt");
-      const sorted = assignments.slice().sort((a, b) => (a.dispatch_minute ?? a.start_minute) - (b.dispatch_minute ?? b.start_minute));
-      const vehicles = [...new Set(sorted.map(a => a.vehicle_id))].slice(0, 18);
+      const mode = $("ganttFilter").value || "all";
+      const filtered = assignments.filter((item) => {
+        if (mode === "owned") {
+          return !item.is_external;
+        }
+        if (mode === "external") {
+          return item.is_external;
+        }
+        if (mode === "container") {
+          return item.use_container;
+        }
+        return true;
+      });
+      const sorted = filtered.slice().sort((a, b) => (a.dispatch_minute ?? a.start_minute) - (b.dispatch_minute ?? b.start_minute));
+      const vehicles = [...new Set(sorted.map(a => a.vehicle_id))];
+      $("ganttSummary").textContent = t("ganttSummary")
+        .replace("{shown}", filtered.length)
+        .replace("{total}", assignments.length)
+        .replace("{vehicles}", vehicles.length)
+        .replace("{external}", assignments.filter(a => a.is_external).length);
+      if (!sorted.length) {
+        svg.setAttribute("height", 180);
+        svg.innerHTML = `<text x="24" y="64" font-size="13" fill="#667085">${escapeHtml(t("ganttSummary").replace("{shown}", 0).replace("{total}", assignments.length).replace("{vehicles}", 0).replace("{external}", assignments.filter(a => a.is_external).length))}</text>`;
+        return;
+      }
       const minMinute = Math.min(...sorted.map(a => a.start_minute), 1320);
       const maxMinute = Math.max(...sorted.map(a => a.end_minute), 2360);
       const width = 1080;
-      const left = 190;
+      const left = 250;
       const rowHeight = 28;
       const top = 38;
       const height = Math.max(420, top + vehicles.length * rowHeight + 36);
@@ -843,7 +895,7 @@ DASHBOARD_HTML = r"""<!doctype html>
       const scale = (minute) => left + ((minute - minMinute) / Math.max(maxMinute - minMinute, 1)) * (width - left - 28);
       const rows = vehicles.map((vehicle, idx) => {
         const y = top + idx * rowHeight;
-        return `<text x="14" y="${y + 18}" font-size="12" fill="#475467">${escapeHtml(vehicle)}</text>
+        return `<text x="14" y="${y + 18}" font-size="12" fill="#475467">${escapeHtml(vehicleLabel(vehicle))}</text>
           <line x1="${left}" y1="${y + 23}" x2="${width - 20}" y2="${y + 23}" stroke="#eef1f5" />`;
       }).join("");
       const bars = sorted.filter(a => vehicles.includes(a.vehicle_id)).map(a => {
@@ -877,6 +929,14 @@ DASHBOARD_HTML = r"""<!doctype html>
       return `D+${day} ${h}:${m}`;
     }
 
+    function vehicleLabel(vehicleId) {
+      const value = String(vehicleId);
+      if (value.startsWith("External_")) {
+        return value.length > 30 ? `${value.slice(0, 27)}...` : value;
+      }
+      return value;
+    }
+
     function escapeHtml(value) {
       return String(value).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]));
     }
@@ -886,6 +946,11 @@ DASHBOARD_HTML = r"""<!doctype html>
     $("run").addEventListener("click", runSchedule);
     $("runUpload").addEventListener("click", runUploadedSchedule);
     $("clearUpload").addEventListener("click", clearUploadedFiles);
+    $("ganttFilter").addEventListener("change", () => {
+      if (lastResult) {
+        drawGantt((lastResult.solution || {}).assignments || []);
+      }
+    });
     $("language").addEventListener("change", (event) => {
       currentLang = event.target.value;
       applyLanguage();

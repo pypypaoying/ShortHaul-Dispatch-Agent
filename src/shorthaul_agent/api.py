@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 from shorthaul_agent import DispatchOrchestrator, ProblemConfig
+from shorthaul_agent.data_ingestion_agent import DataIngestionAgent, DataIngestionAgentConfig
 from shorthaul_agent.experiment import load_experiment_config, run_experiment
 from shorthaul_agent.external_io import (
     CSV_TEMPLATES,
@@ -42,6 +43,8 @@ PAYLOAD_UPLOAD_FIELDS = {"payload", "payload_json", "schedule_payload"}
 PAYLOAD_UPLOAD_FILENAMES = {"payload.json", "schedule_payload.json"}
 WORKBOOK_UPLOAD_FIELDS = {"workbook", "xlsx", "excel", "scenario_workbook"}
 WORKBOOK_UPLOAD_SUFFIXES = {".xlsx", ".xlsm", ".xls"}
+DATA_AGENT_UPLOAD_FIELDS = {"data_file", "agent_file", "business_file", "user_data"}
+TEXT_UPLOAD_SUFFIXES = {".csv", ".txt", ".tsv", ".json"}
 
 
 def create_app():
@@ -251,6 +254,13 @@ async def _payload_from_multipart_form(form: Any) -> tuple[Dict[str, Any], Dict[
     prefer_cpsat = _form_bool(form.get("prefer_cpsat"), default=True)
     form_overrides = _parse_json_text(_form_text(form, "config_overrides_json") or "", default={})
     force_request = _form_bool(form.get("force_request"), default=False)
+    use_data_agent = _form_bool(form.get("use_data_agent"), default=False)
+    raw_data_text = _form_text(form, "raw_data_text")
+    agent_config = DataIngestionAgentConfig.from_values(
+        api_key=_form_text(form, "data_agent_api_key"),
+        base_url=_form_text(form, "data_agent_base_url"),
+        model=_form_text(form, "data_agent_model"),
+    )
 
     uploaded_payload: Optional[Dict[str, Any]] = None
     uploaded_workbook: Optional[tuple[str, bytes]] = None
@@ -266,11 +276,20 @@ async def _payload_from_multipart_form(form: Any) -> tuple[Dict[str, Any], Dict[
         filename = Path(raw_name).name
         filename_key = filename.lower()
         field_key = str(field_name).lower()
+        suffix = Path(filename_key).suffix
         uploaded_names.append(filename)
+        if field_key in DATA_AGENT_UPLOAD_FIELDS and suffix in WORKBOOK_UPLOAD_SUFFIXES:
+            uploaded_workbook = (filename, content)
+            use_data_agent = True
+            continue
+        if field_key in DATA_AGENT_UPLOAD_FIELDS and suffix in TEXT_UPLOAD_SUFFIXES:
+            raw_data_text = content.decode("utf-8-sig")
+            use_data_agent = True
+            continue
         if field_key in PAYLOAD_UPLOAD_FIELDS or filename_key in PAYLOAD_UPLOAD_FILENAMES:
             uploaded_payload = json.loads(content.decode("utf-8-sig"))
             continue
-        if field_key in WORKBOOK_UPLOAD_FIELDS or Path(filename_key).suffix in WORKBOOK_UPLOAD_SUFFIXES:
+        if field_key in WORKBOOK_UPLOAD_FIELDS or suffix in WORKBOOK_UPLOAD_SUFFIXES:
             uploaded_workbook = (filename, content)
             continue
         canonical = CSV_UPLOAD_ALIASES.get(field_key) or CSV_UPLOAD_ALIASES.get(filename_key)
@@ -290,6 +309,16 @@ async def _payload_from_multipart_form(form: Any) -> tuple[Dict[str, Any], Dict[
         with tempfile.TemporaryDirectory(prefix="shorthaul-workbook-upload-") as tmp_dir:
             workbook_path = Path(tmp_dir) / filename
             workbook_path.write_bytes(content)
+            if use_data_agent:
+                payload, agent_meta = DataIngestionAgent(agent_config).build_payload_from_workbook(
+                    workbook_path,
+                    request_text,
+                    instance_id=instance_id,
+                    date=date,
+                    prefer_cpsat=prefer_cpsat,
+                    config_overrides=form_overrides,
+                )
+                return payload, {"source": "data_agent_workbook", "files": [filename], "data_agent": agent_meta}
             payload = build_payload_from_workbook(
                 workbook_path,
                 request_text,
@@ -299,6 +328,17 @@ async def _payload_from_multipart_form(form: Any) -> tuple[Dict[str, Any], Dict[
                 config_overrides=form_overrides,
             )
         return payload, {"source": "workbook_upload", "files": [filename]}
+
+    if use_data_agent and raw_data_text:
+        payload, agent_meta = DataIngestionAgent(agent_config).build_payload_from_text(
+            raw_data_text,
+            request_text,
+            instance_id=instance_id,
+            date=date,
+            prefer_cpsat=prefer_cpsat,
+            config_overrides=form_overrides,
+        )
+        return payload, {"source": "data_agent_text", "files": uploaded_names, "data_agent": agent_meta}
 
     missing = [name for name in ("fleets.csv", "routes.csv", "forecast.csv") if name not in uploaded_files]
     if missing:

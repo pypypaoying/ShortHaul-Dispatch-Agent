@@ -411,53 +411,52 @@ DASHBOARD_HTML = r"""<!doctype html>
   <main>
     <div class="left">
       <section>
-        <h2 data-i18n="uploadTitle">上传本地文件运行</h2>
+        <h2 data-i18n="uploadTitle">智能接入并运行</h2>
         <div class="body">
-          <div class="hint" data-i18n="uploadIntro">推荐只上传一个 Excel 工作簿。把车队、线路、货量粘贴到模板中的 fleets、routes、demand 三张表，即可运行优化。</div>
+          <div class="hint" data-i18n="uploadIntro">上传业务系统导出的 Excel、CSV、JSON，或直接粘贴表格文本。数据接入 Agent 会自动识别字段、对齐调度模型输入，再调用优化器。</div>
           <div style="margin-top:12px">
             <label for="request" data-i18n="requestLabel">调度需求</label>
             <textarea id="request">请基于上传数据生成短途运输调度方案，目标是在满足约束前提下降低成本并提升自有车周转效率。</textarea>
           </div>
           <div class="guide-grid">
-            <div class="guide-step"><strong data-i18n="guideStep1Title">1 下载模板</strong><span data-i18n="guideStep1Body">用 Excel 打开模板，查看每张表的列名和样例。</span></div>
-            <div class="guide-step"><strong data-i18n="guideStep2Title">2 粘贴数据</strong><span data-i18n="guideStep2Body">从 TMS、Excel 或数据库导出后复制到三张必需表。</span></div>
-            <div class="guide-step"><strong data-i18n="guideStep3Title">3 上传运行</strong><span data-i18n="guideStep3Body">选择工作簿，系统自动转换为内部 JSON 并求解。</span></div>
+            <div class="guide-step"><strong data-i18n="guideStep1Title">1 上传数据</strong><span data-i18n="guideStep1Body">直接选择业务系统导出的表，或把表格内容粘贴到文本框。</span></div>
+            <div class="guide-step"><strong data-i18n="guideStep2Title">2 Agent 对齐</strong><span data-i18n="guideStep2Body">Agent 自动识别车队、线路、货量、时间窗和约束字段。</span></div>
+            <div class="guide-step"><strong data-i18n="guideStep3Title">3 优化求解</strong><span data-i18n="guideStep3Body">结构化输入通过校验后交给 CP-SAT / 启发式求解器。</span></div>
             <div class="guide-step"><strong data-i18n="guideStep4Title">4 查看结果</strong><span data-i18n="guideStep4Body">右侧展示 KPI、甘特图、外部承运和原始响应。</span></div>
           </div>
           <div class="file-grid">
             <div class="file-row">
-              <label for="workbookFile" data-i18n="workbookFile">调度数据工作簿 .xlsx</label>
-              <input id="workbookFile" type="file" accept=".xlsx,.xlsm,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" />
+              <label for="dataFile" data-i18n="dataFile">业务数据文件</label>
+              <input id="dataFile" type="file" accept=".xlsx,.xlsm,.xls,.csv,.tsv,.txt,.json,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" />
             </div>
+          </div>
+          <div style="margin-top:12px">
+            <label for="rawDataText" data-i18n="rawDataText">粘贴数据（可选）</label>
+            <textarea id="rawDataText" data-i18n-placeholder="rawDataPlaceholder" placeholder="可粘贴 Excel 复制出来的表格、CSV 文本、JSON 或业务系统导出片段。"></textarea>
           </div>
           <div class="grid-2" style="margin-top:12px">
             <div><label for="uploadInstanceId" data-i18n="uploadInstanceId">场景 ID</label><input id="uploadInstanceId" value="uploaded-instance" /></div>
             <div><label for="uploadDate" data-i18n="uploadDate">计划日期</label><input id="uploadDate" value="2024-12-16" /></div>
           </div>
+          <details>
+            <summary data-i18n="agentConfigTitle">数据接入 Agent API 配置</summary>
+            <div class="hint" data-i18n="agentConfigHint">已规整的数据会优先本地解析；只有字段无法自动识别时，才调用这里配置的 OpenAI-compatible API。也可用环境变量 SHORT_HAUL_INGESTION_API_KEY、SHORT_HAUL_INGESTION_BASE_URL、SHORT_HAUL_INGESTION_MODEL。</div>
+            <div class="grid-2" style="margin-top:10px">
+              <div><label for="agentModel" data-i18n="agentModel">模型</label><input id="agentModel" value="gpt-4.1-mini" /></div>
+              <div><label for="agentBaseUrl" data-i18n="agentBaseUrl">Base URL（可选）</label><input id="agentBaseUrl" placeholder="https://api.openai.com/v1" /></div>
+            </div>
+            <div style="margin-top:10px">
+              <label for="agentApiKey" data-i18n="agentApiKey">API Key（可选，留空则使用环境变量）</label>
+              <input id="agentApiKey" type="password" autocomplete="off" />
+            </div>
+          </details>
           <div class="toolbar" style="margin-top:12px">
             <button id="runUpload" class="primary" data-i18n="runUpload">上传并运行</button>
             <button id="clearUpload" data-i18n="clearUpload">清空上传文件</button>
           </div>
-          <div class="link-row">
-            <a href="/templates/workbook.xlsx" data-i18n="downloadWorkbook">下载 Excel 模板</a>
-            <a href="/templates/view" target="_blank" rel="noreferrer" data-i18n="templateLink">查看模板格式</a>
-            <a href="/contract" target="_blank" rel="noreferrer" data-i18n="contractLink">查看接入教程</a>
-          </div>
-          <div class="template-summary">
-            <strong data-i18n="templateQuickTitle">最小输入格式</strong>
-            <table>
-              <thead><tr><th data-i18n="templateSheet">工作表</th><th data-i18n="templateColumns">必需字段</th><th data-i18n="templateExample">示例</th></tr></thead>
-              <tbody>
-                <tr><td><code>fleets</code></td><td><code>fleet_id</code>, <code>owned_vehicles</code></td><td>Fleet-A, 3</td></tr>
-                <tr><td><code>routes</code></td><td><code>route_id</code>, <code>origin</code>, <code>destination</code>, <code>wave</code>, <code>latest_dispatch_time</code>, <code>travel_min</code>, <code>fleet_id</code></td><td>Site-A - Stop-01 - 0600</td></tr>
-                <tr><td><code>demand</code></td><td><code>route_id</code>, <code>volume</code>; <span data-i18n="optionalReady"><code>ready_time</code> 可选</span></td><td>Site-A - Stop-01 - 0600, 600</td></tr>
-              </tbody>
-            </table>
-          </div>
-          <img class="template-shot" src="/assets/dispatch_ui_demo.png" alt="ShortHaul UI screenshot" />
           <details>
-            <summary data-i18n="advancedUpload">高级：CSV / JSON 接入</summary>
-            <div class="hint" data-i18n="advancedUploadIntro">用于系统集成或自动化导出。普通用户优先使用上方单个 Excel 工作簿。</div>
+            <summary data-i18n="advancedUpload">高级：绕过 Agent 的标准接口</summary>
+            <div class="hint" data-i18n="advancedUploadIntro">开发调试时可直接上传标准 payload.json 或标准 CSV 文件组。</div>
             <div class="file-grid">
               <div class="file-row">
                 <label for="payloadFile" data-i18n="payloadFile">完整 payload.json（可选）</label>
@@ -498,18 +497,6 @@ DASHBOARD_HTML = r"""<!doctype html>
           </div>
         </div>
       </section>
-      <section>
-        <h2 data-i18n="onboardingTitle">接入自己的数据</h2>
-        <div class="body">
-          <ol class="hint-list">
-            <li data-i18n="onboardingStep1">准备 fleets.csv、routes.csv、forecast.csv，可选 milk_run_pairs.csv。</li>
-            <li data-i18n="onboardingStep2">运行 build-payload 命令生成可提交给 /schedule 的 JSON。</li>
-            <li data-i18n="onboardingStep3">将生成的 instance 粘贴到上方，或直接从外部系统 POST 到 /schedule。</li>
-          </ol>
-          <pre class="code-sample">python -m shorthaul_agent.cli build-payload --workbook examples/workbook_template/shorthaul_dispatch_template.xlsx --request examples/external_request.txt --output outputs/schedule_payload.json</pre>
-          <div class="hint" data-i18n="onboardingLinks">接口文档：GET /schema；CSV 模板：GET /templates；本地 CSV 求解：POST /schedule/from-csv-dir。</div>
-        </div>
-      </section>
     </div>
     <div class="right">
       <section>
@@ -518,7 +505,7 @@ DASHBOARD_HTML = r"""<!doctype html>
           <div class="metrics" id="metrics"></div>
           <div class="pill-row" id="warnings" style="margin-top:12px"></div>
         </div>
-        <div id="status" class="status" data-status-key="statusInitial">选择 Excel 工作簿后即可运行调度器。</div>
+        <div id="status" class="status" data-status-key="statusInitial">上传文件或粘贴数据后即可运行调度器。</div>
       </section>
       <section>
         <h2 data-i18n="ganttTitle">调度甘特图</h2>
@@ -556,32 +543,31 @@ DASHBOARD_HTML = r"""<!doctype html>
         runOptimization: "运行内部 JSON",
         requestLabel: "调度需求",
         scenarioHint: "普通用户可直接上传 Excel；高级入口用于调试 API payload 或做二次开发。",
-        uploadTitle: "上传本地文件运行",
-        uploadIntro: "推荐只上传一个 Excel 工作簿。把车队、线路、货量粘贴到模板中的 fleets、routes、demand 三张表，即可运行优化。",
-        guideStep1Title: "1 下载模板",
-        guideStep1Body: "用 Excel 打开模板，查看每张表的列名和样例。",
-        guideStep2Title: "2 粘贴数据",
-        guideStep2Body: "从 TMS、Excel 或数据库导出后复制到三张必需表。",
-        guideStep3Title: "3 上传运行",
-        guideStep3Body: "选择工作簿，系统自动转换为内部 JSON 并求解。",
+        uploadTitle: "智能接入并运行",
+        uploadIntro: "上传业务系统导出的 Excel、CSV、JSON，或直接粘贴表格文本。数据接入 Agent 会自动识别字段、对齐调度模型输入，再调用优化器。",
+        guideStep1Title: "1 上传数据",
+        guideStep1Body: "直接选择业务系统导出的表，或把表格内容粘贴到文本框。",
+        guideStep2Title: "2 Agent 对齐",
+        guideStep2Body: "Agent 自动识别车队、线路、货量、时间窗和约束字段。",
+        guideStep3Title: "3 优化求解",
+        guideStep3Body: "结构化输入通过校验后交给 CP-SAT / 启发式求解器。",
         guideStep4Title: "4 查看结果",
         guideStep4Body: "右侧展示 KPI、甘特图、外部承运和原始响应。",
-        workbookFile: "调度数据工作簿 .xlsx",
+        dataFile: "业务数据文件",
+        rawDataText: "粘贴数据（可选）",
+        rawDataPlaceholder: "可粘贴 Excel 复制出来的表格、CSV 文本、JSON 或业务系统导出片段。",
+        agentConfigTitle: "数据接入 Agent API 配置",
+        agentConfigHint: "已规整的数据会优先本地解析；只有字段无法自动识别时，才调用这里配置的 OpenAI-compatible API。也可用环境变量 SHORT_HAUL_INGESTION_API_KEY、SHORT_HAUL_INGESTION_BASE_URL、SHORT_HAUL_INGESTION_MODEL。",
+        agentModel: "模型",
+        agentBaseUrl: "Base URL（可选）",
+        agentApiKey: "API Key（可选，留空则使用环境变量）",
         payloadFile: "完整 payload.json（可选）",
         uploadInstanceId: "场景 ID",
         uploadDate: "计划日期",
         runUpload: "上传并运行",
         clearUpload: "清空上传文件",
-        downloadWorkbook: "下载 Excel 模板",
-        contractLink: "查看接入教程",
-        templateLink: "查看模板格式",
-        templateQuickTitle: "最小输入格式",
-        templateSheet: "工作表",
-        templateColumns: "必需字段",
-        templateExample: "示例",
-        optionalReady: "ready_time 可选",
-        advancedUpload: "高级：CSV / JSON 接入",
-        advancedUploadIntro: "用于系统集成或自动化导出。普通用户优先使用上方单个 Excel 工作簿。",
+        advancedUpload: "高级：绕过 Agent 的标准接口",
+        advancedUploadIntro: "开发调试时可直接上传标准 payload.json 或标准 CSV 文件组。",
         constraintsTitle: "约束与优化目标",
         constraintsHint: "这里的显式参数会随上传请求提交，优先级高于自然语言描述和工作簿 settings 表。",
         vehicleCapacity: "车辆容量",
@@ -609,12 +595,7 @@ DASHBOARD_HTML = r"""<!doctype html>
         ganttContainer: "仅容器任务",
         ganttSummary: "显示任务 {shown}/{total}；车辆 {vehicles}；外部承运 {external}",
         rawTitle: "原始结果",
-        onboardingTitle: "外部系统接入",
-        onboardingStep1: "人工使用推荐上传单个 Excel 工作簿；系统集成推荐调用 POST /schedule/upload。",
-        onboardingStep2: "若已有业务库，可导出为工作簿模板的三张主表：fleets、routes、demand。",
-        onboardingStep3: "高级场景仍可直接 POST 内部 JSON 到 /schedule，或上传 CSV 文件组。",
-        onboardingLinks: "人类可读教程：GET /contract；模板预览：GET /templates/view；机器 schema：GET /schema。",
-        statusInitial: "选择 Excel 工作簿后即可运行调度器。",
+        statusInitial: "上传文件或粘贴数据后即可运行调度器。",
         statusLoaded: "内置数据已加载。可修改约束或目标权重后运行优化。",
         statusValidating: "正在校验数据...",
         statusValid: "数据校验通过",
@@ -622,7 +603,7 @@ DASHBOARD_HTML = r"""<!doctype html>
         statusSolving: "正在求解...",
         statusUploading: "正在上传并求解...",
         statusUploadMissing: "缺少必需上传文件",
-        statusWorkbookMissing: "请选择 Excel 工作簿，或在高级入口上传 JSON/CSV",
+        statusWorkbookMissing: "请上传业务数据文件、粘贴数据，或在高级入口上传标准 JSON/CSV",
         statusSolved: "求解完成",
         statusFailed: "运行失败",
         totalCost: "总成本",
@@ -642,32 +623,31 @@ DASHBOARD_HTML = r"""<!doctype html>
         runOptimization: "Run internal JSON",
         requestLabel: "Scheduling request",
         scenarioHint: "Most users can upload Excel directly. Advanced input is for API payload debugging or custom development.",
-        uploadTitle: "Upload local files",
-        uploadIntro: "Recommended path: upload one Excel workbook. Paste fleets, routes, and demand into the template sheets and run optimization.",
-        guideStep1Title: "1 Download template",
-        guideStep1Body: "Open the workbook and inspect sheet names, columns, and sample rows.",
-        guideStep2Title: "2 Paste data",
-        guideStep2Body: "Copy exports from TMS, Excel, or a database into the required sheets.",
-        guideStep3Title: "3 Upload and run",
-        guideStep3Body: "The service converts the workbook to internal JSON and solves it.",
+        uploadTitle: "Smart ingest and run",
+        uploadIntro: "Upload an Excel, CSV, JSON export, or paste table text. The Data Ingestion Agent aligns fields to the scheduling model before optimization.",
+        guideStep1Title: "1 Add data",
+        guideStep1Body: "Select a business export, or paste table contents into the text box.",
+        guideStep2Title: "2 Agent aligns",
+        guideStep2Body: "The agent detects fleets, routes, demand, time windows, and constraints.",
+        guideStep3Title: "3 Optimize",
+        guideStep3Body: "Validated structured input is sent to CP-SAT / heuristic solvers.",
         guideStep4Title: "4 Inspect result",
         guideStep4Body: "KPIs, Gantt chart, external carriers, and raw response appear on the right.",
-        workbookFile: "Dispatch workbook .xlsx",
+        dataFile: "Business data file",
+        rawDataText: "Paste data (optional)",
+        rawDataPlaceholder: "Paste copied Excel tables, CSV text, JSON, or business-system export snippets.",
+        agentConfigTitle: "Data Ingestion Agent API",
+        agentConfigHint: "Aligned files are parsed locally first. The OpenAI-compatible API is called only when fields cannot be recognized automatically. Environment variables are also supported: SHORT_HAUL_INGESTION_API_KEY, SHORT_HAUL_INGESTION_BASE_URL, SHORT_HAUL_INGESTION_MODEL.",
+        agentModel: "Model",
+        agentBaseUrl: "Base URL (optional)",
+        agentApiKey: "API Key (optional; env is used when blank)",
         payloadFile: "Complete payload.json (optional)",
         uploadInstanceId: "Instance ID",
         uploadDate: "Planning date",
         runUpload: "Upload and run",
         clearUpload: "Clear uploaded files",
-        downloadWorkbook: "Download Excel template",
-        contractLink: "View onboarding guide",
-        templateLink: "Preview template format",
-        templateQuickTitle: "Minimum input format",
-        templateSheet: "Sheet",
-        templateColumns: "Required columns",
-        templateExample: "Example",
-        optionalReady: "ready_time optional",
-        advancedUpload: "Advanced: CSV / JSON input",
-        advancedUploadIntro: "For system integration and automated exports. Most users should start with the single workbook above.",
+        advancedUpload: "Advanced: bypass Agent",
+        advancedUploadIntro: "For development/debugging, upload a standard payload.json or standard CSV set directly.",
         constraintsTitle: "Constraints and objective",
         constraintsHint: "These explicit controls are submitted with the upload request and take precedence over natural language text and workbook settings.",
         vehicleCapacity: "Vehicle capacity",
@@ -695,12 +675,7 @@ DASHBOARD_HTML = r"""<!doctype html>
         ganttContainer: "Container tasks",
         ganttSummary: "Showing {shown}/{total} tasks; vehicles {vehicles}; external {external}",
         rawTitle: "Raw solution",
-        onboardingTitle: "External integration",
-        onboardingStep1: "For manual use, upload one Excel workbook. For systems, call POST /schedule/upload.",
-        onboardingStep2: "If data already lives in a database, export it into the workbook sheets: fleets, routes, demand.",
-        onboardingStep3: "Advanced integrations can still POST internal JSON to /schedule or upload CSV files.",
-        onboardingLinks: "Human guide: GET /contract; template preview: GET /templates/view; machine schema: GET /schema.",
-        statusInitial: "Select an Excel workbook to run the scheduler.",
+        statusInitial: "Upload a file or paste data to run the scheduler.",
         statusLoaded: "Built-in data loaded. Change constraints or objective weights, then run optimization.",
         statusValidating: "Validating data...",
         statusValid: "Data validation passed",
@@ -708,7 +683,7 @@ DASHBOARD_HTML = r"""<!doctype html>
         statusSolving: "Solving...",
         statusUploading: "Uploading and solving...",
         statusUploadMissing: "Missing required upload files",
-        statusWorkbookMissing: "Select an Excel workbook, or upload JSON/CSV in the advanced section",
+        statusWorkbookMissing: "Upload a business data file, paste data, or upload standard JSON/CSV in the advanced section",
         statusSolved: "Solved",
         statusFailed: "Run failed",
         totalCost: "Total cost",
@@ -730,6 +705,9 @@ DASHBOARD_HTML = r"""<!doctype html>
       document.documentElement.lang = currentLang === "zh" ? "zh-CN" : "en";
       document.querySelectorAll("[data-i18n]").forEach((node) => {
         node.textContent = t(node.dataset.i18n);
+      });
+      document.querySelectorAll("[data-i18n-placeholder]").forEach((node) => {
+        node.setAttribute("placeholder", t(node.dataset.i18nPlaceholder));
       });
       const statusKey = status.dataset.statusKey || "statusInitial";
       status.textContent = statusSuffix ? `${t(statusKey)}：${statusSuffix}` : t(statusKey);
@@ -841,17 +819,27 @@ DASHBOARD_HTML = r"""<!doctype html>
       $("runUpload").disabled = true;
       setStatusKey("statusUploading");
       try {
-        const workbookFile = $("workbookFile").files[0];
+        const dataFile = $("dataFile").files[0];
         const payloadFile = $("payloadFile").files[0];
+        const rawDataText = $("rawDataText").value.trim();
         const formData = new FormData();
+        formData.append("use_data_agent", "true");
         formData.append("prefer_cpsat", $("preferCpsat").checked ? "true" : "false");
         formData.append("config_overrides_json", JSON.stringify(configOverrides()));
+        formData.append("data_agent_model", $("agentModel").value || "");
+        formData.append("data_agent_base_url", $("agentBaseUrl").value || "");
+        formData.append("data_agent_api_key", $("agentApiKey").value || "");
 
-        if (workbookFile) {
+        if (dataFile) {
           formData.append("request", $("request").value || "请根据上传数据生成短途运输调度方案。");
           formData.append("instance_id", $("uploadInstanceId").value || "uploaded-instance");
           formData.append("date", $("uploadDate").value || "");
-          formData.append("workbook", workbookFile);
+          formData.append("data_file", dataFile);
+        } else if (rawDataText) {
+          formData.append("request", $("request").value || "请根据上传数据生成短途运输调度方案。");
+          formData.append("instance_id", $("uploadInstanceId").value || "uploaded-instance");
+          formData.append("date", $("uploadDate").value || "");
+          formData.append("raw_data_text", rawDataText);
         } else if (payloadFile) {
           const payloadText = await payloadFile.text();
           const uploadedPayload = JSON.parse(payloadText);
@@ -908,9 +896,10 @@ DASHBOARD_HTML = r"""<!doctype html>
     }
 
     function clearUploadedFiles() {
-      ["workbookFile", "payloadFile", "fleetsFile", "routesFile", "forecastFile", "milkRunFile", "configFile"].forEach((id) => {
+      ["dataFile", "payloadFile", "fleetsFile", "routesFile", "forecastFile", "milkRunFile", "configFile"].forEach((id) => {
         $(id).value = "";
       });
+      $("rawDataText").value = "";
       setStatusKey("statusInitial");
     }
 

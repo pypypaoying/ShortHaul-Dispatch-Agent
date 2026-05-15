@@ -1,3 +1,4 @@
+import json
 import sys
 from contextlib import ExitStack
 from pathlib import Path
@@ -38,15 +39,15 @@ def test_dashboard_defaults_to_chinese_and_has_language_selector():
     response = client.get("/")
 
     assert response.status_code == 200
-    assert "上传本地文件运行" in response.text
-    assert "最小输入格式" in response.text
+    assert "智能接入并运行" in response.text
+    assert "数据接入 Agent API 配置" in response.text
+    assert "最小输入格式" not in response.text
     assert "示例场景与高级编辑" not in response.text
     assert 'id="language"' in response.text
     assert 'id="runUpload"' in response.text
-    assert 'id="workbookFile"' in response.text
+    assert 'id="dataFile"' in response.text
     assert 'id="ganttFilter"' in response.text
     assert "仅外部承运" in response.text
-    assert "下载 Excel 模板" in response.text
 
 
 def test_api_exposes_external_data_contract():
@@ -156,3 +157,62 @@ def test_schedule_upload_accepts_workbook(tmp_path):
     assert data["solution"]["status"] == "FEASIBLE"
     assert data["solution"]["kpis"]["assigned_task_count"] == data["solution"]["kpis"]["task_count"]
     assert not any(item["use_container"] for item in data["solution"]["assignments"])
+
+
+def test_schedule_upload_data_agent_accepts_aligned_workbook(tmp_path):
+    pytest.importorskip("multipart")
+    app = create_app()
+    client = TestClient(app)
+    workbook = tmp_path / "business_export.xlsx"
+    write_workbook_template(workbook)
+
+    with workbook.open("rb") as fp:
+        response = client.post(
+            "/schedule/upload",
+            data={
+                "request": "Schedule this business export.",
+                "instance_id": "agent-upload-test",
+                "date": "2024-12-16",
+                "prefer_cpsat": "false",
+                "use_data_agent": "true",
+            },
+            files={
+                "data_file": (
+                    "business_export.xlsx",
+                    fp,
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                ),
+            },
+        )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["upload"]["source"] == "data_agent_workbook"
+    assert data["upload"]["data_agent"]["mode"] == "deterministic"
+    assert data["solution"]["status"] == "FEASIBLE"
+
+
+def test_schedule_upload_data_agent_accepts_pasted_payload_json():
+    pytest.importorskip("multipart")
+    app = create_app()
+    client = TestClient(app)
+    payload = demo_payload()
+    payload["prefer_cpsat"] = False
+
+    response = client.post(
+        "/schedule/upload",
+        data={
+            "request": "Schedule pasted payload.",
+            "instance_id": "agent-text-test",
+            "date": "2024-12-16",
+            "prefer_cpsat": "false",
+            "use_data_agent": "true",
+            "raw_data_text": json.dumps(payload),
+        },
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["upload"]["source"] == "data_agent_text"
+    assert data["upload"]["data_agent"]["mode"] == "direct_json"
+    assert data["solution"]["status"] == "FEASIBLE"

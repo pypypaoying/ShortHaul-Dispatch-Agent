@@ -439,16 +439,21 @@ DASHBOARD_HTML = r"""<!doctype html>
             <div><label for="uploadDate" data-i18n="uploadDate">计划日期</label><input id="uploadDate" value="2024-12-16" /></div>
           </div>
           <details>
-            <summary data-i18n="agentConfigTitle">数据接入 Agent API 配置</summary>
-            <div class="hint" data-i18n="agentConfigHint">已规整的数据会优先本地解析；只有字段无法自动识别时，才调用这里配置的 OpenAI-compatible API。也可用环境变量 SHORT_HAUL_INGESTION_API_KEY、SHORT_HAUL_INGESTION_BASE_URL、SHORT_HAUL_INGESTION_MODEL。</div>
+            <summary data-i18n="agentConfigTitle">数据接入 Agent LLM 接入配置</summary>
+            <div class="hint" data-i18n="agentConfigHint">已规整的数据会优先本地解析；只有字段无法自动识别时，才调用这里配置的第三方兼容 Chat Completions 接口。可接 OpenAI 官方，也可接 DeepSeek、通义千问、智谱、月之暗面、OpenRouter 等提供 OpenAI-compatible endpoint 的供应方。</div>
             <div class="grid-2" style="margin-top:10px">
-              <div><label for="agentModel" data-i18n="agentModel">模型</label><input id="agentModel" value="gpt-4.1-mini" /></div>
-              <div><label for="agentBaseUrl" data-i18n="agentBaseUrl">Base URL（可选）</label><input id="agentBaseUrl" placeholder="https://api.openai.com/v1" /></div>
+              <div><label for="agentProvider" data-i18n="agentProvider">API 供应方</label><select id="agentProvider">
+                <option value="openai_compatible" data-i18n="providerCompatible">第三方兼容 / 自定义</option>
+                <option value="openai" data-i18n="providerOpenAI">OpenAI 官方</option>
+              </select></div>
+              <div><label for="agentModel" data-i18n="agentModel">模型名</label><input id="agentModel" data-i18n-placeholder="agentModelPlaceholder" placeholder="例如 deepseek-chat / qwen-plus / 自定义模型名" /></div>
+              <div><label for="agentBaseUrl" data-i18n="agentBaseUrl">API Base URL</label><input id="agentBaseUrl" data-i18n-placeholder="agentBaseUrlPlaceholder" placeholder="https://your-provider.example/v1" /></div>
+              <div>
+                <label for="agentApiKey" data-i18n="agentApiKey">API Key（可选，留空则使用环境变量）</label>
+                <input id="agentApiKey" type="password" autocomplete="off" />
+              </div>
             </div>
-            <div style="margin-top:10px">
-              <label for="agentApiKey" data-i18n="agentApiKey">API Key（可选，留空则使用环境变量）</label>
-              <input id="agentApiKey" type="password" autocomplete="off" />
-            </div>
+            <div class="hint" data-i18n="agentEnvHint">服务端环境变量同样支持：SHORT_HAUL_INGESTION_PROVIDER、SHORT_HAUL_INGESTION_API_KEY、SHORT_HAUL_INGESTION_BASE_URL、SHORT_HAUL_INGESTION_MODEL。</div>
           </details>
           <div class="toolbar" style="margin-top:12px">
             <button id="runUpload" class="primary" data-i18n="runUpload">上传并运行</button>
@@ -556,11 +561,17 @@ DASHBOARD_HTML = r"""<!doctype html>
         dataFile: "业务数据文件（可多选）",
         rawDataText: "粘贴数据（可选）",
         rawDataPlaceholder: "可粘贴 Excel 复制出来的表格、CSV 文本、JSON 或业务系统导出片段。",
-        agentConfigTitle: "数据接入 Agent API 配置",
-        agentConfigHint: "已规整的数据会优先本地解析；只有字段无法自动识别时，才调用这里配置的 OpenAI-compatible API。也可用环境变量 SHORT_HAUL_INGESTION_API_KEY、SHORT_HAUL_INGESTION_BASE_URL、SHORT_HAUL_INGESTION_MODEL。",
-        agentModel: "模型",
-        agentBaseUrl: "Base URL（可选）",
+        agentConfigTitle: "数据接入 Agent LLM 接入配置",
+        agentConfigHint: "已规整的数据会优先本地解析；只有字段无法自动识别时，才调用这里配置的第三方兼容 Chat Completions 接口。可接 OpenAI 官方，也可接提供 OpenAI-compatible endpoint 的第三方供应方。",
+        agentProvider: "API 供应方",
+        providerCompatible: "第三方兼容 / 自定义",
+        providerOpenAI: "OpenAI 官方",
+        agentModel: "模型名",
+        agentModelPlaceholder: "例如 deepseek-chat / qwen-plus / 自定义模型名",
+        agentBaseUrl: "API Base URL",
+        agentBaseUrlPlaceholder: "https://your-provider.example/v1",
         agentApiKey: "API Key（可选，留空则使用环境变量）",
+        agentEnvHint: "服务端环境变量同样支持：SHORT_HAUL_INGESTION_PROVIDER、SHORT_HAUL_INGESTION_API_KEY、SHORT_HAUL_INGESTION_BASE_URL、SHORT_HAUL_INGESTION_MODEL。",
         payloadFile: "完整 payload.json（可选）",
         uploadInstanceId: "场景 ID",
         uploadDate: "计划日期",
@@ -636,11 +647,17 @@ DASHBOARD_HTML = r"""<!doctype html>
         dataFile: "Business data files",
         rawDataText: "Paste data (optional)",
         rawDataPlaceholder: "Paste copied Excel tables, CSV text, JSON, or business-system export snippets.",
-        agentConfigTitle: "Data Ingestion Agent API",
-        agentConfigHint: "Aligned files are parsed locally first. The OpenAI-compatible API is called only when fields cannot be recognized automatically. Environment variables are also supported: SHORT_HAUL_INGESTION_API_KEY, SHORT_HAUL_INGESTION_BASE_URL, SHORT_HAUL_INGESTION_MODEL.",
-        agentModel: "Model",
-        agentBaseUrl: "Base URL (optional)",
+        agentConfigTitle: "Data Ingestion Agent LLM API",
+        agentConfigHint: "Aligned files are parsed locally first. When fields cannot be recognized automatically, the agent calls the configured Chat Completions-compatible API. It can be the official OpenAI API or any third-party OpenAI-compatible endpoint.",
+        agentProvider: "API provider",
+        providerCompatible: "Third-party compatible / custom",
+        providerOpenAI: "Official OpenAI",
+        agentModel: "Model name",
+        agentModelPlaceholder: "e.g. deepseek-chat / qwen-plus / custom model",
+        agentBaseUrl: "API Base URL",
+        agentBaseUrlPlaceholder: "https://your-provider.example/v1",
         agentApiKey: "API Key (optional; env is used when blank)",
+        agentEnvHint: "Server environment variables are also supported: SHORT_HAUL_INGESTION_PROVIDER, SHORT_HAUL_INGESTION_API_KEY, SHORT_HAUL_INGESTION_BASE_URL, SHORT_HAUL_INGESTION_MODEL.",
         payloadFile: "Complete payload.json (optional)",
         uploadInstanceId: "Instance ID",
         uploadDate: "Planning date",
@@ -771,6 +788,22 @@ DASHBOARD_HTML = r"""<!doctype html>
       $("fillWeight").value = weights.fill_rate || 0.2;
     }
 
+    function applyAgentProviderPreset() {
+      const provider = $("agentProvider").value;
+      const baseUrl = $("agentBaseUrl");
+      const model = $("agentModel");
+      if (provider === "openai") {
+        if (!baseUrl.value.trim()) {
+          baseUrl.value = "https://api.openai.com/v1";
+        }
+        if (!model.value.trim()) {
+          model.value = "gpt-4.1-mini";
+        }
+      } else if (baseUrl.value.trim() === "https://api.openai.com/v1") {
+        baseUrl.value = "";
+      }
+    }
+
     function configOverrides() {
       return {
         vehicle_capacity: Number($("vehicleCapacity").value),
@@ -826,6 +859,7 @@ DASHBOARD_HTML = r"""<!doctype html>
         formData.append("use_data_agent", "true");
         formData.append("prefer_cpsat", $("preferCpsat").checked ? "true" : "false");
         formData.append("config_overrides_json", JSON.stringify(configOverrides()));
+        formData.append("data_agent_provider", $("agentProvider").value || "openai_compatible");
         formData.append("data_agent_model", $("agentModel").value || "");
         formData.append("data_agent_base_url", $("agentBaseUrl").value || "");
         formData.append("data_agent_api_key", $("agentApiKey").value || "");
@@ -1048,6 +1082,7 @@ DASHBOARD_HTML = r"""<!doctype html>
       currentLang = event.target.value;
       applyLanguage();
     });
+    $("agentProvider").addEventListener("change", applyAgentProviderPreset);
     applyLanguage();
   </script>
 </body>

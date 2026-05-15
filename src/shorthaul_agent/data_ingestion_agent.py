@@ -37,8 +37,9 @@ CSV_FILE_ALIASES = {
 
 @dataclass
 class DataIngestionAgentConfig:
-    """Configuration for the user-provided OpenAI-compatible ingestion API."""
+    """Configuration for the user-provided Chat Completions-compatible API."""
 
+    provider: str = "openai_compatible"
     api_key: str = ""
     base_url: str = ""
     model: str = "gpt-4.1-mini"
@@ -47,11 +48,13 @@ class DataIngestionAgentConfig:
     def from_values(
         cls,
         *,
+        provider: str = "",
         api_key: str = "",
         base_url: str = "",
         model: str = "",
     ) -> "DataIngestionAgentConfig":
         return cls(
+            provider=provider or os.getenv("SHORT_HAUL_INGESTION_PROVIDER", "openai_compatible"),
             api_key=api_key or os.getenv("SHORT_HAUL_INGESTION_API_KEY", "") or os.getenv("OPENAI_API_KEY", ""),
             base_url=base_url or os.getenv("SHORT_HAUL_INGESTION_BASE_URL", ""),
             model=model or os.getenv("SHORT_HAUL_INGESTION_MODEL", "gpt-4.1-mini"),
@@ -102,6 +105,7 @@ class DataIngestionAgent:
         Instance.from_dict(payload["instance"])
         return payload, {
             "mode": "llm_file_batch_payload",
+            "provider": self.config.provider,
             "model": self.config.model,
             "files": [name for name, _ in cleaned],
             "warnings": [],
@@ -133,7 +137,7 @@ class DataIngestionAgent:
                 config_overrides=config_overrides,
             )
             Instance.from_dict(payload["instance"])
-            return payload, {"mode": "deterministic", "model": "", "warnings": []}
+            return payload, {"mode": "deterministic", "provider": self.config.provider, "model": "", "warnings": []}
         except Exception as deterministic_error:
             if not self.config.api_key:
                 raise ValueError(
@@ -154,7 +158,13 @@ class DataIngestionAgent:
                 config_overrides=config_overrides,
             )
         Instance.from_dict(payload["instance"])
-        return payload, {"mode": "llm_mapping", "model": self.config.model, "mapping": mapping, "warnings": []}
+        return payload, {
+            "mode": "llm_mapping",
+            "provider": self.config.provider,
+            "model": self.config.model,
+            "mapping": mapping,
+            "warnings": [],
+        }
 
     def build_payload_from_text(
         self,
@@ -173,7 +183,7 @@ class DataIngestionAgent:
 
         direct = self._try_direct_json_payload(raw_text, request_text, prefer_cpsat, config_overrides)
         if direct is not None:
-            return direct, {"mode": "direct_json", "model": "", "warnings": []}
+            return direct, {"mode": "direct_json", "provider": self.config.provider, "model": "", "warnings": []}
 
         if not self.config.api_key:
             raise ValueError("粘贴数据需要配置数据接入 Agent API Key，才能自动转换为调度输入。")
@@ -182,7 +192,12 @@ class DataIngestionAgent:
         if config_overrides:
             payload["config_overrides"] = _deep_merge(payload.get("config_overrides", {}), config_overrides)
         Instance.from_dict(payload["instance"])
-        return payload, {"mode": "llm_text_payload", "model": self.config.model, "warnings": []}
+        return payload, {
+            "mode": "llm_text_payload",
+            "provider": self.config.provider,
+            "model": self.config.model,
+            "warnings": [],
+        }
 
     def _try_deterministic_file_batch(
         self,
@@ -203,7 +218,12 @@ class DataIngestionAgent:
                     config_overrides,
                 )
                 if direct is not None:
-                    return direct, {"mode": "direct_json_file", "model": "", "warnings": []}
+                    return direct, {
+                        "mode": "direct_json_file",
+                        "provider": self.config.provider,
+                        "model": "",
+                        "warnings": [],
+                    }
 
         csv_bundle = {
             CSV_FILE_ALIASES[filename.lower()]: content
@@ -224,7 +244,7 @@ class DataIngestionAgent:
                     config_overrides=config_overrides,
                 )
             Instance.from_dict(payload["instance"])
-            return payload, {"mode": "csv_bundle", "model": "", "warnings": []}
+            return payload, {"mode": "csv_bundle", "provider": self.config.provider, "model": "", "warnings": []}
 
         if len(files) == 1:
             filename, content = files[0]
@@ -359,7 +379,11 @@ class DataIngestionAgent:
         try:
             from openai import OpenAI
         except ImportError as exc:
-            raise ValueError("数据接入 Agent 需要安装 openai：python -m pip install -e '.[llm]'") from exc
+            raise ValueError(
+                "数据接入 Agent 需要安装 openai Python SDK。"
+                "这里把它作为 OpenAI-compatible 客户端使用，并不限制官方 OpenAI 服务："
+                "python -m pip install -e '.[llm]'"
+            ) from exc
 
         client_kwargs = {"api_key": self.config.api_key}
         if self.config.base_url:

@@ -40,7 +40,9 @@ def test_dashboard_defaults_to_chinese_and_has_language_selector():
 
     assert response.status_code == 200
     assert "智能接入并运行" in response.text
-    assert "数据接入 Agent API 配置" in response.text
+    assert "数据接入 Agent LLM 接入配置" in response.text
+    assert 'id="agentProvider"' in response.text
+    assert "第三方兼容 / 自定义" in response.text
     assert "最小输入格式" not in response.text
     assert "示例场景与高级编辑" not in response.text
     assert 'id="language"' in response.text

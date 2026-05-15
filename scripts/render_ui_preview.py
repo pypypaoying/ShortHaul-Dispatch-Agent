@@ -71,12 +71,12 @@ def render() -> None:
     draw.rounded_rectangle((42, 230, 216, 266), radius=6, fill="#0f766e", outline="#0f766e")
     label(draw, (82, 240), "上传并运行", FONT_13, "#ffffff")
     draw.rounded_rectangle((232, 230, 410, 266), radius=6, fill="#ffffff", outline="#d7dce3")
-    label(draw, (268, 240), "Agent API 配置", FONT_13)
+    label(draw, (260, 240), "第三方 LLM API", FONT_13)
 
     box(draw, (42, 292, 410, 418), "#ffffff")
     label(draw, (58, 308), "数据接入 Agent", FONT_14)
     label(draw, (58, 342), "本地解析：已规整数据直接对齐", FONT_12, "#475467")
-    label(draw, (58, 370), "LLM 对齐：混乱字段自动生成映射", FONT_12, "#475467")
+    label(draw, (58, 370), "LLM 对齐：支持第三方兼容接口", FONT_12, "#475467")
     label(draw, (58, 398), "校验通过后交给 CP-SAT / 启发式求解器", FONT_12, "#475467")
 
     label(draw, (42, 454), "约束与优化目标", FONT_14)

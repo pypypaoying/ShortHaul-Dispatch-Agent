@@ -256,6 +256,7 @@ async def _payload_from_multipart_form(form: Any) -> tuple[Dict[str, Any], Dict[
     use_data_agent = _form_bool(form.get("use_data_agent"), default=False)
     raw_data_text = _form_text(form, "raw_data_text")
     agent_config = DataIngestionAgentConfig.from_values(
+        provider=_form_text(form, "data_agent_provider"),
         api_key=_form_text(form, "data_agent_api_key"),
         base_url=_form_text(form, "data_agent_base_url"),
         model=_form_text(form, "data_agent_model"),

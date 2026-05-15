@@ -14,6 +14,7 @@ from shorthaul_agent.data_ingestion_agent import (  # noqa: E402
     DataIngestionAgent,
     DataIngestionAgentConfig,
     _chat_completions_url,
+    _normalize_llm_payload,
     _route_file_batch,
 )
 
@@ -102,6 +103,44 @@ def test_router_sends_messy_business_export_to_llm_path():
     assert route.kind == "llm_required"
     assert "No deterministic input standard matched" in route.reason
     assert route.file_roles == {}
+
+
+def test_llm_payload_normalization_repairs_common_aliases():
+    payload = {
+        "request": {"objective": "minimize cost"},
+        "config_overrides": {"objective_weights": {"owned_turnover": 0.7, "cost_weight": 1.0}},
+        "instance": {
+            "fleets": [{"dispatch_group_label": "Pool-A", "owned_trucks_ready_today": 2}],
+            "routes": [
+                {
+                    "lane_display_name": "Hub-A > Node-01 / early wave",
+                    "ship_from_depot": "Hub-A",
+                    "deliver_to_node": "Node-01",
+                    "sort_wave_label": "0600",
+                    "promised_leave_by": "D+1 06:00",
+                    "road_minutes": 35,
+                    "usual_truck_pool": "Pool-A",
+                }
+            ],
+            "forecast": [
+                {
+                    "business_lane_text": "Hub-A > Node-01 / early wave",
+                    "predicted_pieces": 620,
+                    "first_ready_to_load": "D+0 23:00",
+                }
+            ],
+        },
+    }
+
+    normalized = _normalize_llm_payload(payload, "Schedule it.", "alias-test", "2024-12-16", False)
+
+    assert normalized["request"]
+    assert normalized["config_overrides"]["objective_weights"] == {"cost": 1.0, "turnover": 0.7}
+    assert normalized["instance"]["fleets"][0]["id"] == "Pool-A"
+    assert normalized["instance"]["fleets"][0]["vehicle_count"] == 2
+    assert normalized["instance"]["routes"][0]["latest_dispatch_minute"] == 1800
+    assert normalized["instance"]["forecast"][0]["route_id"] == "Hub-A > Node-01 / early wave"
+    assert normalized["instance"]["forecast"][0]["minute"] == 1380
 
 
 def test_raw_structured_attachment_batch_builds_payload_without_llm():

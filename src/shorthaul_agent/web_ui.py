@@ -269,6 +269,26 @@ DASHBOARD_HTML = r"""<!doctype html>
     svg { display: block; min-width: 860px; }
     .status { color: var(--muted); padding: 10px 14px; border-top: 1px solid var(--line); }
     .status.error { color: var(--danger); }
+    .pipeline {
+      display: grid;
+      grid-template-columns: repeat(6, minmax(0, 1fr));
+      gap: 8px;
+      padding: 12px 14px 4px;
+      border-top: 1px solid var(--line);
+    }
+    .stage {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 8px;
+      background: #fbfcfe;
+      color: var(--muted);
+      min-height: 58px;
+    }
+    .stage strong { display: block; color: var(--ink); font-size: 12px; margin-bottom: 3px; }
+    .stage span { display: block; font-size: 11px; }
+    .stage.active { border-color: var(--accent-2); background: #eff6ff; }
+    .stage.done { border-color: #99d6c9; background: #ecfdf5; }
+    .stage.error { border-color: #fda29b; background: #fff1f0; }
     .pill-row { display: flex; gap: 8px; flex-wrap: wrap; }
     .pill {
       border: 1px solid var(--line);
@@ -391,9 +411,39 @@ DASHBOARD_HTML = r"""<!doctype html>
       font-size: 12px;
       margin-top: 8px;
     }
+    .recommendation {
+      border: 1px solid #bfdbfe;
+      border-radius: 8px;
+      background: #eff6ff;
+      color: #1e3a8a;
+      padding: 9px 10px;
+      font-size: 12px;
+      line-height: 1.55;
+      margin-top: 10px;
+    }
+    .export-options {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+    .export-options label {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      margin: 0;
+      color: var(--ink);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 8px;
+      background: #fbfcfe;
+    }
+    .export-options input { width: auto; }
+    .export-status { color: var(--muted); font-size: 12px; margin-top: 8px; }
     @media (max-width: 980px) {
       main { grid-template-columns: 1fr; }
       .metrics { grid-template-columns: repeat(2, minmax(130px, 1fr)); }
+      .pipeline { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     }
   </style>
 </head>
@@ -444,15 +494,22 @@ DASHBOARD_HTML = r"""<!doctype html>
             <div class="grid-2" style="margin-top:10px">
               <div><label for="agentProvider" data-i18n="agentProvider">API 供应方</label><select id="agentProvider">
                 <option value="openai_compatible" data-i18n="providerCompatible">第三方兼容 / 自定义</option>
+                <option value="deepseek" data-i18n="providerDeepSeek">DeepSeek</option>
+                <option value="qwen" data-i18n="providerQwen">通义千问 / DashScope</option>
                 <option value="openai" data-i18n="providerOpenAI">OpenAI 官方</option>
+                <option value="moonshot" data-i18n="providerMoonshot">月之暗面 / Kimi</option>
+                <option value="zhipu" data-i18n="providerZhipu">智谱 GLM</option>
+                <option value="openrouter" data-i18n="providerOpenRouter">OpenRouter</option>
               </select></div>
               <div><label for="agentModel" data-i18n="agentModel">模型名</label><input id="agentModel" data-i18n-placeholder="agentModelPlaceholder" placeholder="例如 deepseek-chat / qwen-plus / 自定义模型名" /></div>
               <div><label for="agentBaseUrl" data-i18n="agentBaseUrl">API Base URL</label><input id="agentBaseUrl" data-i18n-placeholder="agentBaseUrlPlaceholder" placeholder="https://your-provider.example/v1" /></div>
+              <div><label for="agentTimeout" data-i18n="agentTimeout">超时时间（秒）</label><input id="agentTimeout" type="number" min="10" max="300" value="120" /></div>
               <div>
                 <label for="agentApiKey" data-i18n="agentApiKey">API Key（可选，留空则使用环境变量）</label>
                 <input id="agentApiKey" type="password" autocomplete="off" />
               </div>
             </div>
+            <div class="recommendation" data-i18n="modelRecommendation">推荐先试 DeepSeek deepseek-chat 或通义千问 qwen-plus；如果字段混乱、备注多、跨表关系复杂，优先使用更强的长上下文模型，并用下方基准脚本在本机 API Key 上复测。</div>
             <div class="hint" data-i18n="agentEnvHint">服务端环境变量同样支持：SHORT_HAUL_INGESTION_PROVIDER、SHORT_HAUL_INGESTION_API_KEY、SHORT_HAUL_INGESTION_BASE_URL、SHORT_HAUL_INGESTION_MODEL。</div>
           </details>
           <div class="toolbar" style="margin-top:12px">
@@ -510,6 +567,14 @@ DASHBOARD_HTML = r"""<!doctype html>
           <div class="metrics" id="metrics"></div>
           <div class="pill-row" id="warnings" style="margin-top:12px"></div>
         </div>
+        <div class="pipeline" id="pipeline">
+          <div class="stage" data-stage="prepare"><strong data-i18n="stagePrepare">准备请求</strong><span data-i18n="stagePending">等待中</span></div>
+          <div class="stage" data-stage="router"><strong data-i18n="stageRouter">Router 判别</strong><span data-i18n="stagePending">等待中</span></div>
+          <div class="stage" data-stage="align"><strong data-i18n="stageAlign">字段对齐</strong><span data-i18n="stagePending">等待中</span></div>
+          <div class="stage" data-stage="validate"><strong data-i18n="stageValidate">约束校验</strong><span data-i18n="stagePending">等待中</span></div>
+          <div class="stage" data-stage="solve"><strong data-i18n="stageSolve">优化求解</strong><span data-i18n="stagePending">等待中</span></div>
+          <div class="stage" data-stage="render"><strong data-i18n="stageRender">渲染结果</strong><span data-i18n="stagePending">等待中</span></div>
+        </div>
         <div id="status" class="status" data-status-key="statusInitial">上传文件或粘贴数据后即可运行调度器。</div>
       </section>
       <section>
@@ -526,6 +591,20 @@ DASHBOARD_HTML = r"""<!doctype html>
         <div class="chart-shell"><svg id="gantt" width="1080" height="420"></svg></div>
       </section>
       <section>
+        <h2 data-i18n="exportTitle">导出结果</h2>
+        <div class="body">
+          <div class="export-options">
+            <label><input type="checkbox" class="export-file" value="solution_json" checked /> <span data-i18n="exportSolution">完整结果 JSON</span></label>
+            <label><input type="checkbox" class="export-file" value="assignments_csv" checked /> <span data-i18n="exportAssignments">调度明细 CSV</span></label>
+            <label><input type="checkbox" class="export-file" value="kpis_json" checked /> <span data-i18n="exportKpis">KPI JSON</span></label>
+            <label><input type="checkbox" class="export-file" value="upload_meta_json" /> <span data-i18n="exportUploadMeta">接入元数据 JSON</span></label>
+            <label><input type="checkbox" class="export-file" value="warnings_txt" /> <span data-i18n="exportWarnings">告警 TXT</span></label>
+          </div>
+          <button id="exportSelected" disabled data-i18n="exportSelected">导出所选文件</button>
+          <div id="exportStatus" class="export-status" data-i18n="exportHint">运行一次调度后即可导出 zip 文件。</div>
+        </div>
+      </section>
+      <section>
         <h2 data-i18n="rawTitle">原始结果</h2>
         <div class="body"><pre id="raw">{}</pre></div>
       </section>
@@ -538,6 +617,16 @@ DASHBOARD_HTML = r"""<!doctype html>
     let lastDemoPayload = null;
     let lastResult = null;
     let statusSuffix = "";
+
+    const providerPresets = {
+      deepseek: {baseUrl: "https://api.deepseek.com/v1", model: "deepseek-chat"},
+      qwen: {baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1", model: "qwen-plus"},
+      openai: {baseUrl: "https://api.openai.com/v1", model: "gpt-4.1-mini"},
+      moonshot: {baseUrl: "https://api.moonshot.cn/v1", model: "moonshot-v1-8k"},
+      zhipu: {baseUrl: "https://open.bigmodel.cn/api/paas/v4", model: "glm-4-flash"},
+      openrouter: {baseUrl: "https://openrouter.ai/api/v1", model: "openai/gpt-4.1-mini"}
+    };
+    const pipelineStages = ["prepare", "router", "align", "validate", "solve", "render"];
 
     const i18n = {
       zh: {
@@ -565,13 +654,20 @@ DASHBOARD_HTML = r"""<!doctype html>
         agentConfigHint: "已规整的数据会优先本地解析；只有字段无法自动识别时，才调用这里配置的第三方兼容 Chat Completions 接口。可接 OpenAI 官方，也可接提供 OpenAI-compatible endpoint 的第三方供应方。",
         agentProvider: "API 供应方",
         providerCompatible: "第三方兼容 / 自定义",
+        providerDeepSeek: "DeepSeek",
+        providerQwen: "通义千问 / DashScope",
         providerOpenAI: "OpenAI 官方",
+        providerMoonshot: "月之暗面 / Kimi",
+        providerZhipu: "智谱 GLM",
+        providerOpenRouter: "OpenRouter",
         agentModel: "模型名",
         agentModelPlaceholder: "例如 deepseek-chat / qwen-plus / 自定义模型名",
         agentBaseUrl: "API Base URL",
         agentBaseUrlPlaceholder: "https://your-provider.example/v1",
+        agentTimeout: "超时时间（秒）",
         agentApiKey: "API Key（可选，留空则使用环境变量）",
-        agentEnvHint: "服务端环境变量同样支持：SHORT_HAUL_INGESTION_PROVIDER、SHORT_HAUL_INGESTION_API_KEY、SHORT_HAUL_INGESTION_BASE_URL、SHORT_HAUL_INGESTION_MODEL。",
+        modelRecommendation: "推荐先试 DeepSeek deepseek-chat 或通义千问 qwen-plus；如果字段混乱、备注多、跨表关系复杂，优先使用更强的长上下文模型，并用 scripts/benchmark_llm_ingestion.py 在本机 API Key 上复测。",
+        agentEnvHint: "服务端环境变量同样支持：SHORT_HAUL_INGESTION_PROVIDER、SHORT_HAUL_INGESTION_API_KEY、SHORT_HAUL_INGESTION_BASE_URL、SHORT_HAUL_INGESTION_MODEL、SHORT_HAUL_INGESTION_TIMEOUT_SECONDS。",
         payloadFile: "完整 payload.json（可选）",
         uploadInstanceId: "场景 ID",
         uploadDate: "计划日期",
@@ -599,12 +695,35 @@ DASHBOARD_HTML = r"""<!doctype html>
         instanceTitle: "高级：内部 JSON",
         instanceHint: "这是系统内部 payload 结构。外部业务人员通常不需要手写它，上传 Excel 后系统会自动转换。",
         kpiTitle: "方案指标",
+        stagePrepare: "准备请求",
+        stageRouter: "Router 判别",
+        stageAlign: "字段对齐",
+        stageValidate: "约束校验",
+        stageSolve: "优化求解",
+        stageRender: "渲染结果",
+        stagePending: "等待中",
+        stageActive: "进行中",
+        stageDone: "完成",
+        stageSkipped: "跳过",
+        stageError: "失败",
         ganttTitle: "调度甘特图",
         ganttAll: "全部任务",
         ganttOwned: "仅自有车",
         ganttExternal: "仅外部承运",
         ganttContainer: "仅容器任务",
         ganttSummary: "显示任务 {shown}/{total}；车辆 {vehicles}；外部承运 {external}",
+        exportTitle: "导出结果",
+        exportSolution: "完整结果 JSON",
+        exportAssignments: "调度明细 CSV",
+        exportKpis: "KPI JSON",
+        exportUploadMeta: "接入元数据 JSON",
+        exportWarnings: "告警 TXT",
+        exportSelected: "导出所选文件",
+        exportHint: "运行一次调度后即可导出 zip 文件。",
+        exportReady: "可导出当前方案。",
+        exportRunning: "正在生成导出文件...",
+        exportDone: "导出文件已生成。",
+        exportNoSelection: "请至少选择一个导出文件。",
         rawTitle: "原始结果",
         statusInitial: "上传文件或粘贴数据后即可运行调度器。",
         statusLoaded: "内置数据已加载。可修改约束或目标权重后运行优化。",
@@ -651,13 +770,20 @@ DASHBOARD_HTML = r"""<!doctype html>
         agentConfigHint: "Aligned files are parsed locally first. When fields cannot be recognized automatically, the agent calls the configured Chat Completions-compatible API. It can be the official OpenAI API or any third-party OpenAI-compatible endpoint.",
         agentProvider: "API provider",
         providerCompatible: "Third-party compatible / custom",
+        providerDeepSeek: "DeepSeek",
+        providerQwen: "Qwen / DashScope",
         providerOpenAI: "Official OpenAI",
+        providerMoonshot: "Moonshot / Kimi",
+        providerZhipu: "Zhipu GLM",
+        providerOpenRouter: "OpenRouter",
         agentModel: "Model name",
         agentModelPlaceholder: "e.g. deepseek-chat / qwen-plus / custom model",
         agentBaseUrl: "API Base URL",
         agentBaseUrlPlaceholder: "https://your-provider.example/v1",
+        agentTimeout: "Timeout seconds",
         agentApiKey: "API Key (optional; env is used when blank)",
-        agentEnvHint: "Server environment variables are also supported: SHORT_HAUL_INGESTION_PROVIDER, SHORT_HAUL_INGESTION_API_KEY, SHORT_HAUL_INGESTION_BASE_URL, SHORT_HAUL_INGESTION_MODEL.",
+        modelRecommendation: "Recommended first tries: DeepSeek deepseek-chat or Qwen qwen-plus. For messy cross-sheet exports with many notes, use a stronger long-context model and re-benchmark with scripts/benchmark_llm_ingestion.py on your own API keys.",
+        agentEnvHint: "Server environment variables are also supported: SHORT_HAUL_INGESTION_PROVIDER, SHORT_HAUL_INGESTION_API_KEY, SHORT_HAUL_INGESTION_BASE_URL, SHORT_HAUL_INGESTION_MODEL, SHORT_HAUL_INGESTION_TIMEOUT_SECONDS.",
         payloadFile: "Complete payload.json (optional)",
         uploadInstanceId: "Instance ID",
         uploadDate: "Planning date",
@@ -685,12 +811,35 @@ DASHBOARD_HTML = r"""<!doctype html>
         instanceTitle: "Advanced: internal JSON",
         instanceHint: "This is the internal payload structure. Business users usually do not need to write it; Excel uploads are converted automatically.",
         kpiTitle: "Solution KPIs",
+        stagePrepare: "Prepare",
+        stageRouter: "Router",
+        stageAlign: "Align fields",
+        stageValidate: "Validate",
+        stageSolve: "Optimize",
+        stageRender: "Render",
+        stagePending: "Pending",
+        stageActive: "Running",
+        stageDone: "Done",
+        stageSkipped: "Skipped",
+        stageError: "Failed",
         ganttTitle: "Dispatch Gantt",
         ganttAll: "All tasks",
         ganttOwned: "Owned vehicles",
         ganttExternal: "External carrier",
         ganttContainer: "Container tasks",
         ganttSummary: "Showing {shown}/{total} tasks; vehicles {vehicles}; external {external}",
+        exportTitle: "Export result",
+        exportSolution: "Full solution JSON",
+        exportAssignments: "Assignments CSV",
+        exportKpis: "KPI JSON",
+        exportUploadMeta: "Ingestion metadata JSON",
+        exportWarnings: "Warnings TXT",
+        exportSelected: "Export selected files",
+        exportHint: "Run a schedule before exporting a zip file.",
+        exportReady: "Current solution is ready to export.",
+        exportRunning: "Generating export archive...",
+        exportDone: "Export archive generated.",
+        exportNoSelection: "Select at least one export file.",
         rawTitle: "Raw solution",
         statusInitial: "Upload a file or paste data to run the scheduler.",
         statusLoaded: "Built-in data loaded. Change constraints or objective weights, then run optimization.",
@@ -734,6 +883,8 @@ DASHBOARD_HTML = r"""<!doctype html>
       if (lastResult) {
         renderSolution(lastResult);
       }
+      refreshPipelineLabels();
+      refreshExportStatus();
     }
 
     function setStatusKey(key, isError = false, suffix = "") {
@@ -748,6 +899,71 @@ DASHBOARD_HTML = r"""<!doctype html>
       statusSuffix = "";
       status.textContent = text;
       status.className = isError ? "status error" : "status";
+    }
+
+    function resetPipeline() {
+      pipelineStages.forEach((stage) => {
+        const node = document.querySelector(`[data-stage="${stage}"]`);
+        if (node) {
+          delete node.dataset.customLabel;
+        }
+        setStage(stage, "pending", t("stagePending"));
+      });
+    }
+
+    function setStage(stage, state, text) {
+      const node = document.querySelector(`[data-stage="${stage}"]`);
+      if (!node) {
+        return;
+      }
+      node.className = `stage ${state === "pending" ? "" : state}`;
+      node.dataset.state = state;
+      node.dataset.label = text || t(state === "active" ? "stageActive" : state === "done" ? "stageDone" : state === "error" ? "stageError" : "stagePending");
+      const span = node.querySelector("span");
+      if (span) {
+        span.textContent = node.dataset.label;
+      }
+    }
+
+    function refreshPipelineLabels() {
+      pipelineStages.forEach((stage) => {
+        const node = document.querySelector(`[data-stage="${stage}"]`);
+        if (!node) {
+          return;
+        }
+        const state = node.dataset.state || "pending";
+        if (!node.dataset.customLabel) {
+          setStage(stage, state, t(state === "active" ? "stageActive" : state === "done" ? "stageDone" : state === "error" ? "stageError" : "stagePending"));
+        }
+      });
+    }
+
+    function markStageDetail(stage, state, text) {
+      const node = document.querySelector(`[data-stage="${stage}"]`);
+      if (node) {
+        node.dataset.customLabel = "true";
+      }
+      setStage(stage, state, text);
+    }
+
+    function updatePipelineFromResult(result) {
+      const upload = result.upload || {};
+      const agent = upload.data_agent || {};
+      const router = agent.router || {};
+      if (upload.source) {
+        markStageDetail("router", "done", router.kind || upload.source);
+      } else {
+        setStage("router", "done", t("stageDone"));
+      }
+      if (agent.mode) {
+        markStageDetail("align", "done", agent.mode);
+      } else {
+        markStageDetail("align", "done", t("stageSkipped"));
+      }
+      setStage("validate", "done", t("stageDone"));
+      const solver = ((result.solution || {}).solver || "").trim();
+      markStageDetail("solve", "done", solver || t("stageDone"));
+      setStage("render", "done", t("stageDone"));
     }
 
     function sampleRequestForLanguage(payload = lastDemoPayload) {
@@ -792,12 +1008,11 @@ DASHBOARD_HTML = r"""<!doctype html>
       const provider = $("agentProvider").value;
       const baseUrl = $("agentBaseUrl");
       const model = $("agentModel");
-      if (provider === "openai") {
-        if (!baseUrl.value.trim()) {
-          baseUrl.value = "https://api.openai.com/v1";
-        }
-        if (!model.value.trim()) {
-          model.value = "gpt-4.1-mini";
+      const preset = providerPresets[provider];
+      if (preset) {
+        baseUrl.value = preset.baseUrl;
+        if (!model.value.trim() || Object.values(providerPresets).some(item => item.model === model.value.trim())) {
+          model.value = preset.model;
         }
       } else if (baseUrl.value.trim() === "https://api.openai.com/v1") {
         baseUrl.value = "";
@@ -822,6 +1037,11 @@ DASHBOARD_HTML = r"""<!doctype html>
 
     async function runSchedule() {
       $("run").disabled = true;
+      resetPipeline();
+      setStage("prepare", "done", t("stageDone"));
+      setStage("router", "done", t("stageSkipped"));
+      setStage("align", "done", t("stageSkipped"));
+      setStage("validate", "active", t("stageActive"));
       setStatusKey("statusSolving");
       try {
         const payload = {
@@ -835,13 +1055,19 @@ DASHBOARD_HTML = r"""<!doctype html>
           headers: {"Content-Type": "application/json"},
           body: JSON.stringify(payload)
         });
+        setStage("validate", "done", t("stageDone"));
+        setStage("solve", "active", t("stageActive"));
         const solution = await response.json();
         if (!response.ok || solution.error) {
           throw new Error(JSON.stringify(solution));
         }
+        setStage("solve", "done", (solution.solution || {}).solver || t("stageDone"));
+        setStage("render", "active", t("stageActive"));
         renderSolution(solution);
+        setStage("render", "done", t("stageDone"));
         setStatusKey("statusSolved", false, `${solution.solution.solver}: ${solution.solution.status}`);
       } catch (error) {
+        setStage("solve", "error", t("stageError"));
         setStatusKey("statusFailed", true, error.message);
       } finally {
         $("run").disabled = false;
@@ -850,6 +1076,8 @@ DASHBOARD_HTML = r"""<!doctype html>
 
     async function runUploadedSchedule() {
       $("runUpload").disabled = true;
+      resetPipeline();
+      setStage("prepare", "active", t("stageActive"));
       setStatusKey("statusUploading");
       try {
         const dataFiles = Array.from($("dataFile").files || []);
@@ -863,6 +1091,7 @@ DASHBOARD_HTML = r"""<!doctype html>
         formData.append("data_agent_model", $("agentModel").value || "");
         formData.append("data_agent_base_url", $("agentBaseUrl").value || "");
         formData.append("data_agent_api_key", $("agentApiKey").value || "");
+        formData.append("data_agent_timeout_seconds", $("agentTimeout").value || "120");
 
         if (dataFiles.length) {
           formData.append("request", $("request").value || "请根据上传数据生成短途运输调度方案。");
@@ -915,14 +1144,29 @@ DASHBOARD_HTML = r"""<!doctype html>
           }
         }
 
+        setStage("prepare", "done", t("stageDone"));
+        setStage("router", "active", t("stageActive"));
+        setStage("align", "active", t("stageActive"));
         const response = await fetch("/schedule/upload", {method: "POST", body: formData});
+        setStage("router", "done", t("stageDone"));
+        setStage("align", "done", t("stageDone"));
+        setStage("validate", "active", t("stageActive"));
         const solution = await response.json();
         if (!response.ok || solution.error) {
           throw new Error(solution.detail || JSON.stringify(solution));
         }
+        setStage("validate", "done", t("stageDone"));
+        setStage("solve", "done", (solution.solution || {}).solver || t("stageDone"));
+        setStage("render", "active", t("stageActive"));
         renderSolution(solution);
+        updatePipelineFromResult(solution);
         setStatusKey("statusSolved", false, `${solution.solution.solver}: ${solution.solution.status}`);
       } catch (error) {
+        const active = pipelineStages.find(stage => {
+          const node = document.querySelector(`[data-stage="${stage}"]`);
+          return node && node.dataset.state === "active";
+        });
+        setStage(active || "align", "error", t("stageError"));
         setStatusKey("statusFailed", true, error.message);
       } finally {
         $("runUpload").disabled = false;
@@ -934,6 +1178,7 @@ DASHBOARD_HTML = r"""<!doctype html>
         $(id).value = "";
       });
       $("rawDataText").value = "";
+      resetPipeline();
       setStatusKey("statusInitial");
     }
 
@@ -985,6 +1230,53 @@ DASHBOARD_HTML = r"""<!doctype html>
       $("warnings").innerHTML = (solution.warnings || []).slice(0, 6).map(item => `<span class="pill">${escapeHtml(item)}</span>`).join("");
       $("raw").textContent = JSON.stringify(result, null, 2);
       drawGantt(solution.assignments || []);
+      refreshExportStatus();
+    }
+
+    async function exportSelectedFiles() {
+      if (!lastResult) {
+        refreshExportStatus();
+        return;
+      }
+      const files = Array.from(document.querySelectorAll(".export-file:checked")).map((item) => item.value);
+      if (!files.length) {
+        $("exportStatus").textContent = t("exportNoSelection");
+        return;
+      }
+      $("exportSelected").disabled = true;
+      $("exportStatus").textContent = t("exportRunning");
+      try {
+        const response = await fetch("/schedule/export", {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({result: lastResult, files})
+        });
+        if (!response.ok) {
+          throw new Error(await response.text());
+        }
+        const blob = await response.blob();
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = "shorthaul_schedule_export.zip";
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        URL.revokeObjectURL(url);
+        $("exportStatus").textContent = t("exportDone");
+      } catch (error) {
+        $("exportStatus").textContent = `${t("statusFailed")}：${error.message}`;
+      } finally {
+        $("exportSelected").disabled = !lastResult;
+      }
+    }
+
+    function refreshExportStatus() {
+      if (!$("exportSelected")) {
+        return;
+      }
+      $("exportSelected").disabled = !lastResult;
+      $("exportStatus").textContent = lastResult ? t("exportReady") : t("exportHint");
     }
 
     function drawGantt(assignments) {
@@ -1073,6 +1365,7 @@ DASHBOARD_HTML = r"""<!doctype html>
 
     $("runUpload").addEventListener("click", runUploadedSchedule);
     $("clearUpload").addEventListener("click", clearUploadedFiles);
+    $("exportSelected").addEventListener("click", exportSelectedFiles);
     $("ganttFilter").addEventListener("change", () => {
       if (lastResult) {
         drawGantt((lastResult.solution || {}).assignments || []);
@@ -1083,6 +1376,8 @@ DASHBOARD_HTML = r"""<!doctype html>
       applyLanguage();
     });
     $("agentProvider").addEventListener("change", applyAgentProviderPreset);
+    resetPipeline();
+    refreshExportStatus();
     applyLanguage();
   </script>
 </body>

@@ -2,6 +2,8 @@
 
 import json
 import tempfile
+import zipfile
+from io import BytesIO
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -72,6 +74,10 @@ def create_app():
         date: str = ""
         prefer_cpsat: bool = True
         config_overrides: Dict[str, Any] = Field(default_factory=dict)
+
+    class ExportRequest(BaseModel):
+        result: Dict[str, Any] = Field(..., description="Schedule result returned by /schedule or /schedule/upload.")
+        files: list[str] = Field(default_factory=lambda: ["solution_json", "assignments_csv", "kpis_json"])
 
     app = FastAPI(
         title="Short-haul Dispatch Agent",
@@ -231,6 +237,18 @@ def create_app():
             schedule_payload["request"], instance
         ).to_dict()
 
+    @app.post("/schedule/export")
+    def export_schedule(payload: ExportRequest = Body(...)) -> Response:
+        try:
+            archive = _export_result_archive(payload.result, payload.files)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return Response(
+            content=archive,
+            media_type="application/zip",
+            headers={"Content-Disposition": 'attachment; filename="shorthaul_schedule_export.zip"'},
+        )
+
     @app.post("/experiments/d-problem")
     def run_d_problem(payload: ExperimentRequest = Body(...)) -> Dict[str, Any]:
         return run_experiment(Path(payload.data_dir), Path(payload.output_dir), prefer_cpsat=payload.prefer_cpsat)
@@ -260,6 +278,7 @@ async def _payload_from_multipart_form(form: Any) -> tuple[Dict[str, Any], Dict[
         api_key=_form_text(form, "data_agent_api_key"),
         base_url=_form_text(form, "data_agent_base_url"),
         model=_form_text(form, "data_agent_model"),
+        timeout_seconds=_form_text(form, "data_agent_timeout_seconds") or None,
     )
 
     uploaded_payload: Optional[Dict[str, Any]] = None
@@ -420,3 +439,57 @@ def _data_agent_upload_source(files: list[tuple[str, bytes]]) -> str:
     if suffix in WORKBOOK_UPLOAD_SUFFIXES:
         return "data_agent_workbook"
     return "data_agent_text"
+
+
+def _export_result_archive(result: Dict[str, Any], selected_files: list[str]) -> bytes:
+    allowed = set(selected_files or [])
+    solution = result.get("solution", {}) if isinstance(result, dict) else {}
+    assignments = solution.get("assignments", []) if isinstance(solution, dict) else []
+    kpis = solution.get("kpis", {}) if isinstance(solution, dict) else {}
+    upload = result.get("upload", {}) if isinstance(result, dict) else {}
+    buffer = BytesIO()
+    with zipfile.ZipFile(buffer, mode="w", compression=zipfile.ZIP_DEFLATED) as archive:
+        if "solution_json" in allowed:
+            archive.writestr("solution.json", json.dumps(result, ensure_ascii=False, indent=2))
+        if "assignments_csv" in allowed:
+            archive.writestr("assignments.csv", _assignments_csv(assignments))
+        if "kpis_json" in allowed:
+            archive.writestr("kpis.json", json.dumps(kpis, ensure_ascii=False, indent=2))
+        if "upload_meta_json" in allowed:
+            archive.writestr("upload_meta.json", json.dumps(upload, ensure_ascii=False, indent=2))
+        if "warnings_txt" in allowed:
+            warnings = solution.get("warnings", []) if isinstance(solution, dict) else []
+            archive.writestr("warnings.txt", "\n".join(str(item) for item in warnings))
+    if not buffer.tell():
+        raise ValueError("No export files were selected.")
+    return buffer.getvalue()
+
+
+def _assignments_csv(assignments: Any) -> str:
+    headers = [
+        "task_id",
+        "route_ids",
+        "vehicle_id",
+        "fleet_id",
+        "start_minute",
+        "end_minute",
+        "dispatch_minute",
+        "volume",
+        "use_container",
+        "is_external",
+    ]
+    rows = [",".join(headers)]
+    if not isinstance(assignments, list):
+        return "\n".join(rows) + "\n"
+    for item in assignments:
+        if not isinstance(item, dict):
+            continue
+        values = []
+        for key in headers:
+            value = item.get(key, "")
+            if isinstance(value, list):
+                value = "|".join(str(part) for part in value)
+            text = str(value).replace('"', '""')
+            values.append(f'"{text}"' if any(ch in text for ch in ',\n"') else text)
+        rows.append(",".join(values))
+    return "\n".join(rows) + "\n"

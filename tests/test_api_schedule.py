@@ -1,6 +1,8 @@
 import json
 import sys
+import zipfile
 from contextlib import ExitStack
+from io import BytesIO
 from pathlib import Path
 
 import pytest
@@ -32,6 +34,29 @@ def test_schedule_endpoint_accepts_json_body():
     assert data["solution"]["kpis"]["assigned_task_count"] == data["solution"]["kpis"]["task_count"]
 
 
+def test_schedule_export_returns_selected_zip_files():
+    app = create_app()
+    client = TestClient(app)
+    payload = demo_payload()
+    payload["prefer_cpsat"] = False
+    schedule_response = client.post("/schedule", json=payload)
+    assert schedule_response.status_code == 200
+
+    response = client.post(
+        "/schedule/export",
+        json={
+            "result": schedule_response.json(),
+            "files": ["solution_json", "assignments_csv", "kpis_json"],
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("application/zip")
+    with zipfile.ZipFile(BytesIO(response.content)) as archive:
+        assert sorted(archive.namelist()) == ["assignments.csv", "kpis.json", "solution.json"]
+        assert "task_id" in archive.read("assignments.csv").decode("utf-8")
+
+
 def test_dashboard_defaults_to_chinese_and_has_language_selector():
     app = create_app()
     client = TestClient(app)
@@ -51,6 +76,9 @@ def test_dashboard_defaults_to_chinese_and_has_language_selector():
     assert 'id="dataFile" type="file" multiple' in response.text
     assert 'id="ganttFilter"' in response.text
     assert "仅外部承运" in response.text
+    assert 'data-stage="router"' in response.text
+    assert 'id="exportSelected"' in response.text
+    assert 'value="deepseek"' in response.text
 
 
 def test_api_exposes_external_data_contract():

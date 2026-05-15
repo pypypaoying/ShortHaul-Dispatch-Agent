@@ -36,6 +36,49 @@ CSV_FILE_ALIASES = {
     "milk_run_pairs.csv": "milk_run_pairs.csv",
     "config_overrides.json": "config_overrides.json",
 }
+FLEET_PAYLOAD_ALIASES = {
+    "id": {"id", "fleet_id", "fleet", "fleet_name", "dispatch_group_label", "truck_pool", "usual_truck_pool", "车队", "车队编码"},
+    "vehicle_count": {
+        "vehicle_count",
+        "owned_vehicles",
+        "owned_vehicle_count",
+        "owned_trucks",
+        "owned_trucks_ready_today",
+        "truck_count",
+        "vehicles",
+        "自有车数量",
+    },
+    "fixed_cost": {"fixed_cost", "daily_base_fee", "base_fee", "fixed_fee", "固定成本"},
+    "variable_cost_per_trip": {
+        "variable_cost_per_trip",
+        "internal_trip_settlement",
+        "trip_cost",
+        "inhouse_fee_each_run",
+        "owned_trip_cost",
+        "单趟成本",
+    },
+    "normal_load_minutes": {"normal_load_minutes", "dock_load_normal_min", "load_min", "loading_minutes", "装车时间"},
+    "normal_unload_minutes": {"normal_unload_minutes", "dock_unload_normal_min", "unload_min", "unloading_minutes", "卸车时间"},
+    "container_load_minutes": {"container_load_minutes", "box_load_min", "container_load_min", "容器装车时间"},
+    "container_unload_minutes": {"container_unload_minutes", "box_unload_min", "container_unload_min", "容器卸车时间"},
+}
+ROUTE_PAYLOAD_ALIASES = {
+    "id": {"id", "route_id", "lane_display_name", "business_lane_text", "lane", "route", "线路"},
+    "origin": {"origin", "ship_from_depot", "source", "depot", "始发地", "起始场地"},
+    "destination": {"destination", "deliver_to_node", "node", "stop", "目的地", "站点"},
+    "wave": {"wave", "sort_wave_label", "dispatch_wave", "batch", "发运波次"},
+    "latest_dispatch_minute": {"latest_dispatch_minute", "latest_dispatch_time", "promised_leave_by", "deadline", "最晚发运时间"},
+    "travel_minutes": {"travel_minutes", "road_minutes", "travel_min", "duration_minutes", "在途时长"},
+    "fleet_id": {"fleet_id", "usual_truck_pool", "fleet", "truck_pool", "车队编码"},
+    "variable_cost": {"variable_cost", "inhouse_fee_each_run", "owned_trip_cost", "trip_cost", "自有成本"},
+    "external_cost": {"external_cost", "spot_carrier_quote", "external_trip_cost", "spot_cost", "外部成本"},
+    "external_cost_multiplier": {"external_cost_multiplier", "spot_cost_factor", "external_multiplier", "外部成本倍率"},
+}
+FORECAST_PAYLOAD_ALIASES = {
+    "route_id": {"route_id", "business_lane_text", "lane_display_name", "lane", "route", "线路"},
+    "minute": {"minute", "ready_time", "first_ready_to_load", "time", "available_time", "货量产生时间"},
+    "volume": {"volume", "predicted_pieces", "pieces", "parcel_count", "demand", "包裹量", "货量"},
+}
 
 RAW_ATTACHMENT_SCHEMAS = {
     "route_metadata": {"线路编码", "起始场地", "目的场地", "发运节点", "车队编码", "在途时长", "自有变动成本", "外部承运商成本"},
@@ -78,6 +121,7 @@ class DataIngestionAgentConfig:
     api_key: str = ""
     base_url: str = ""
     model: str = "gpt-4.1-mini"
+    timeout_seconds: int = 60
 
     @classmethod
     def from_values(
@@ -87,12 +131,15 @@ class DataIngestionAgentConfig:
         api_key: str = "",
         base_url: str = "",
         model: str = "",
+        timeout_seconds: int | str | None = None,
     ) -> "DataIngestionAgentConfig":
+        timeout = timeout_seconds or os.getenv("SHORT_HAUL_INGESTION_TIMEOUT_SECONDS", "60")
         return cls(
             provider=provider or os.getenv("SHORT_HAUL_INGESTION_PROVIDER", "openai_compatible"),
             api_key=api_key or os.getenv("SHORT_HAUL_INGESTION_API_KEY", "") or os.getenv("OPENAI_API_KEY", ""),
             base_url=base_url or os.getenv("SHORT_HAUL_INGESTION_BASE_URL", ""),
             model=model or os.getenv("SHORT_HAUL_INGESTION_MODEL", "gpt-4.1-mini"),
+            timeout_seconds=max(10, int(float(timeout))),
         )
 
 
@@ -137,6 +184,7 @@ class DataIngestionAgent:
             )
 
         payload = self._payload_from_files_with_llm(cleaned, request_text, instance_id, date, prefer_cpsat)
+        payload = _normalize_llm_payload(payload, request_text, instance_id, date, prefer_cpsat)
         if config_overrides:
             payload["config_overrides"] = _deep_merge(payload.get("config_overrides", {}), config_overrides)
         Instance.from_dict(payload["instance"])
@@ -227,6 +275,7 @@ class DataIngestionAgent:
             raise ValueError("粘贴数据需要配置数据接入 Agent API Key，才能自动转换为调度输入。")
 
         payload = self._payload_from_text_with_llm(raw_text, request_text, instance_id, date, prefer_cpsat)
+        payload = _normalize_llm_payload(payload, request_text, instance_id, date, prefer_cpsat)
         if config_overrides:
             payload["config_overrides"] = _deep_merge(payload.get("config_overrides", {}), config_overrides)
         Instance.from_dict(payload["instance"])
@@ -445,7 +494,7 @@ class DataIngestionAgent:
         except ImportError:
             return self._call_llm_via_http(prompt)
 
-        client_kwargs = {"api_key": self.config.api_key}
+        client_kwargs = {"api_key": self.config.api_key, "timeout": self.config.timeout_seconds}
         if self.config.base_url:
             client_kwargs["base_url"] = self.config.base_url
         client = OpenAI(**client_kwargs)
@@ -489,7 +538,7 @@ class DataIngestionAgent:
             method="POST",
         )
         try:
-            with urllib.request.urlopen(request, timeout=60) as response:
+            with urllib.request.urlopen(request, timeout=self.config.timeout_seconds) as response:
                 payload = json.loads(response.read().decode("utf-8"))
         except urllib.error.HTTPError as exc:
             detail = exc.read().decode("utf-8", errors="replace")
@@ -837,6 +886,246 @@ def _preview_value(value: Any) -> Any:
         pass
     text = str(value)
     return text if len(text) <= 120 else text[:117] + "..."
+
+
+def _normalize_llm_payload(
+    payload: dict[str, Any],
+    request_text: str,
+    instance_id: str,
+    date: str,
+    prefer_cpsat: bool,
+) -> dict[str, Any]:
+    """Repair common LLM schema drift before strict dataclass validation."""
+    normalized = dict(payload or {})
+    instance = dict(normalized.get("instance") or {})
+    raw_fleets = _ensure_list(instance.get("fleets"))
+    raw_routes = _ensure_list(instance.get("routes"))
+    raw_forecast = _ensure_list(instance.get("forecast") or instance.get("demand"))
+
+    fleets = []
+    for idx, item in enumerate(raw_fleets, start=1):
+        if not isinstance(item, dict):
+            continue
+        row = _alias_row(item, FLEET_PAYLOAD_ALIASES)
+        fleet_id = _clean_text(row.get("id")) or f"Fleet-{idx}"
+        fleets.append(
+            {
+                "id": fleet_id,
+                "vehicle_count": _coerce_int(row.get("vehicle_count"), 1),
+                "fixed_cost": _coerce_int(row.get("fixed_cost"), 600),
+                "variable_cost_per_trip": _coerce_int(row.get("variable_cost_per_trip"), 80),
+                "normal_load_minutes": _coerce_int(row.get("normal_load_minutes"), 45),
+                "normal_unload_minutes": _coerce_int(row.get("normal_unload_minutes"), 45),
+                "container_load_minutes": _coerce_int(row.get("container_load_minutes"), 20),
+                "container_unload_minutes": _coerce_int(row.get("container_unload_minutes"), 20),
+            }
+        )
+    if not fleets:
+        fleets = [{"id": "Fleet-1", "vehicle_count": 1}]
+    fleet_ids = {item["id"] for item in fleets}
+
+    routes = []
+    route_aliases: dict[str, str] = {}
+    for idx, item in enumerate(raw_routes, start=1):
+        if not isinstance(item, dict):
+            continue
+        row = _alias_row(item, ROUTE_PAYLOAD_ALIASES)
+        origin = _clean_text(row.get("origin")) or "Origin"
+        destination = _clean_text(row.get("destination")) or f"Destination-{idx}"
+        wave = _clean_text(row.get("wave")) or _infer_wave(row.get("id")) or "wave"
+        route_id = _clean_text(row.get("id")) or f"{origin} - {destination} - {wave}"
+        fleet_id = _clean_text(row.get("fleet_id")) or fleets[0]["id"]
+        if fleet_id not in fleet_ids:
+            fleets.append({"id": fleet_id, "vehicle_count": 1})
+            fleet_ids.add(fleet_id)
+        route = {
+            "id": route_id,
+            "origin": origin,
+            "destination": destination,
+            "wave": wave,
+            "latest_dispatch_minute": _coerce_minute(row.get("latest_dispatch_minute"), 1800),
+            "travel_minutes": _coerce_int(row.get("travel_minutes"), 30),
+            "fleet_id": fleet_id,
+            "variable_cost": _coerce_int(row.get("variable_cost"), 120),
+            "external_cost_multiplier": _coerce_float(row.get("external_cost_multiplier"), 1.35),
+        }
+        external_cost = _optional_int(row.get("external_cost"))
+        if external_cost is not None:
+            route["external_cost"] = external_cost
+        routes.append(route)
+        for alias in {route_id, _clean_text(item.get("lane_display_name")), _clean_text(item.get("business_lane_text"))}:
+            if alias:
+                route_aliases[_normalized_key(alias)] = route_id
+
+    route_by_id = {item["id"]: item for item in routes}
+    forecast = []
+    for item in raw_forecast:
+        if not isinstance(item, dict):
+            continue
+        row = _alias_row(item, FORECAST_PAYLOAD_ALIASES)
+        route_id = _clean_text(row.get("route_id"))
+        route_id = route_aliases.get(_normalized_key(route_id), route_id)
+        if route_id not in route_by_id and routes:
+            route_id = _best_route_match(route_id, route_by_id) or routes[0]["id"]
+        if not route_id:
+            continue
+        default_minute = max(int(route_by_id.get(route_id, {}).get("latest_dispatch_minute", 1800)) - 120, 0)
+        forecast.append(
+            {
+                "route_id": route_id,
+                "minute": _coerce_minute(row.get("minute"), default_minute),
+                "volume": _coerce_int(row.get("volume"), 0),
+            }
+        )
+
+    normalized["request"] = _clean_text(normalized.get("request")) or request_text
+    normalized["prefer_cpsat"] = bool(normalized.get("prefer_cpsat", prefer_cpsat))
+    normalized["config_overrides"] = _normalize_config_overrides(normalized.get("config_overrides", {}))
+    normalized["instance"] = {
+        "id": _clean_text(instance.get("id")) or instance_id,
+        "date": _clean_text(instance.get("date")) or date,
+        "fleets": fleets,
+        "routes": routes,
+        "forecast": forecast,
+    }
+    return normalized
+
+
+def _normalize_config_overrides(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        return {}
+    allowed = {
+        "vehicle_capacity",
+        "container_capacity",
+        "max_stops",
+        "allow_container",
+        "allow_external",
+        "set_cover_tail_threshold",
+        "tail_cover_strategy",
+        "tail_candidate_strategy",
+        "tail_beam_width",
+        "solver_time_limit_seconds",
+        "cpsat_search_seed",
+        "cpsat_search_seeds",
+        "cpsat_num_workers",
+        "cpsat_deterministic",
+        "cpsat_use_deterministic_time",
+        "milk_run_pairs",
+    }
+    normalized = {key: item for key, item in value.items() if key in allowed}
+    weights = value.get("objective_weights", {})
+    if isinstance(weights, dict):
+        weight_aliases = {
+            "cost": {"cost", "total_cost", "cost_weight"},
+            "turnover": {"turnover", "owned_turnover", "own_turnover", "vehicle_turnover", "turnover_weight"},
+            "fill_rate": {"fill_rate", "fill", "loading_rate", "load_factor", "fill_weight"},
+        }
+        clean_weights = {}
+        aliased = _alias_row(weights, weight_aliases)
+        for key in ("cost", "turnover", "fill_rate"):
+            if key in aliased:
+                clean_weights[key] = _coerce_float(aliased[key], 0.0)
+        if clean_weights:
+            normalized["objective_weights"] = clean_weights
+    return normalized
+
+
+def _ensure_list(value: Any) -> list[Any]:
+    if isinstance(value, list):
+        return value
+    if isinstance(value, dict):
+        return list(value.values())
+    return []
+
+
+def _alias_row(row: dict[str, Any], aliases: dict[str, set[str]]) -> dict[str, Any]:
+    by_key = {_normalized_key(key): value for key, value in row.items()}
+    normalized = {}
+    for target, names in aliases.items():
+        for name in {target, *names}:
+            key = _normalized_key(name)
+            if key in by_key and _clean_text(by_key[key]) != "":
+                normalized[target] = by_key[key]
+                break
+    return normalized
+
+
+def _normalized_key(value: Any) -> str:
+    return re.sub(r"[^0-9a-zA-Z\u4e00-\u9fff]+", "", str(value or "").lower())
+
+
+def _clean_text(value: Any) -> str:
+    if value is None:
+        return ""
+    try:
+        if pd.isna(value):
+            return ""
+    except TypeError:
+        pass
+    return str(value).strip()
+
+
+def _coerce_int(value: Any, default: int) -> int:
+    parsed = _optional_int(value)
+    return default if parsed is None else parsed
+
+
+def _optional_int(value: Any) -> int | None:
+    text = _clean_text(value)
+    if not text:
+        return None
+    try:
+        return int(round(float(text)))
+    except ValueError:
+        match = re.search(r"-?\d+(?:\.\d+)?", text)
+        if not match:
+            return None
+        return int(round(float(match.group(0))))
+
+
+def _coerce_float(value: Any, default: float) -> float:
+    text = _clean_text(value)
+    if not text:
+        return default
+    try:
+        return float(text)
+    except ValueError:
+        match = re.search(r"-?\d+(?:\.\d+)?", text)
+        return default if not match else float(match.group(0))
+
+
+def _coerce_minute(value: Any, default: int) -> int:
+    text = _clean_text(value)
+    if not text:
+        return default
+    if re.fullmatch(r"-?\d+(?:\.\d+)?", text):
+        return int(round(float(text)))
+    day_match = re.search(r"D\s*\+\s*(\d+).*?(\d{1,2}):(\d{2})", text, flags=re.IGNORECASE)
+    if day_match:
+        return int(day_match.group(1)) * 1440 + int(day_match.group(2)) * 60 + int(day_match.group(3))
+    clock_match = re.search(r"(\d{1,2}):(\d{2})", text)
+    if clock_match:
+        return int(clock_match.group(1)) * 60 + int(clock_match.group(2))
+    return default
+
+
+def _infer_wave(value: Any) -> str:
+    match = re.search(r"(\d{3,4})", _clean_text(value))
+    return match.group(1) if match else ""
+
+
+def _best_route_match(route_id: str, route_by_id: dict[str, dict[str, Any]]) -> str:
+    normalized = _normalized_key(route_id)
+    if not normalized:
+        return ""
+    for candidate in route_by_id:
+        if normalized == _normalized_key(candidate):
+            return candidate
+    for candidate, route in route_by_id.items():
+        haystack = _normalized_key(" ".join([candidate, route.get("origin", ""), route.get("destination", ""), route.get("wave", "")]))
+        if normalized in haystack or haystack in normalized:
+            return candidate
+    return ""
 
 
 def _extract_json_object(text: str) -> dict[str, Any]:

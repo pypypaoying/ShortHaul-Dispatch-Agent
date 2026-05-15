@@ -89,6 +89,21 @@ def test_router_detects_raw_structured_attachment_batch():
     }
 
 
+def test_router_sends_messy_business_export_to_llm_path():
+    sample_dir = ROOT / "examples" / "messy_upload"
+    files = [
+        (path.name, path.read_bytes())
+        for path in sorted(sample_dir.iterdir())
+        if path.suffix.lower() in {".xlsx", ".txt"}
+    ]
+
+    route = _route_file_batch(files)
+
+    assert route.kind == "llm_required"
+    assert "No deterministic input standard matched" in route.reason
+    assert route.file_roles == {}
+
+
 def test_raw_structured_attachment_batch_builds_payload_without_llm():
     files = _raw_attachment_files()
     agent = DataIngestionAgent(DataIngestionAgentConfig(api_key=""))

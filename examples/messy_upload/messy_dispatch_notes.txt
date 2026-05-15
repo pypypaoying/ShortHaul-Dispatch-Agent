@@ -1,0 +1,5 @@
+Operational notes for the messy upload test:
+1. This data is intentionally exported from several business systems and does not use the ShortHaul template names.
+2. Minimize total cost first, then improve owned-vehicle turnover. Containers are allowed. External carriers should be fallback only.
+3. Hub-A early-wave lanes may combine Node-01 and Node-02. Hub-B afternoon tail loads may use an external carrier if owned trucks are tight.
+4. Planning date: 2024-12-16.

@@ -65,7 +65,7 @@ def render() -> None:
     input_box(draw, (42, 170, 410, 250), "Schedule 2024-12-16, minimize cost, allow containers...")
 
     draw.rounded_rectangle((42, 272, 188, 308), radius=6, fill="#ffffff", outline="#d7dce3")
-    label(draw, (62, 282), "Load D demo", FONT_13)
+    label(draw, (58, 282), "Load sample", FONT_13)
     draw.rounded_rectangle((198, 272, 410, 308), radius=6, fill="#0f766e", outline="#0f766e")
     label(draw, (232, 282), "Run optimization", FONT_13, "#ffffff")
 

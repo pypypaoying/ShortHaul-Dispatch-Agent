@@ -280,7 +280,7 @@ DASHBOARD_HTML = r"""<!doctype html>
         <h2>Scenario</h2>
         <div class="body">
           <div class="toolbar">
-            <button id="loadDemo">Load D-problem demo</button>
+            <button id="loadDemo">Load sample scenario</button>
             <button id="run" class="primary">Run optimization</button>
           </div>
           <div style="margin-top:12px">
@@ -329,7 +329,7 @@ DASHBOARD_HTML = r"""<!doctype html>
           <div class="metrics" id="metrics"></div>
           <div class="pill-row" id="warnings" style="margin-top:12px"></div>
         </div>
-        <div id="status" class="status">Load the demo and run the scheduler.</div>
+        <div id="status" class="status">Load the sample scenario and run the scheduler.</div>
       </section>
       <section>
         <h2>Dispatch Gantt</h2>
@@ -367,7 +367,7 @@ DASHBOARD_HTML = r"""<!doctype html>
       $("costWeight").value = weights.cost || 1;
       $("turnoverWeight").value = weights.turnover || 0.5;
       $("fillWeight").value = weights.fill_rate || 0.2;
-      setStatus("Demo loaded. Change constraints or objective weights, then run optimization.");
+      setStatus("Sample scenario loaded. Change constraints or objective weights, then run optimization.");
     }
 
     function configOverrides() {

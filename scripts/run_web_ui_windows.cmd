@@ -6,7 +6,7 @@ set "CONDA_BAT=%CONDA_BAT%"
 if "%CONDA_BAT%"=="" set "CONDA_BAT=D:\miniconda3\Scripts\activate.bat"
 
 set "SHORT_HAUL_ENV=%SHORT_HAUL_ENV%"
-if "%SHORT_HAUL_ENV%"=="" set "SHORT_HAUL_ENV=shorthaul-agent-exp"
+if "%SHORT_HAUL_ENV%"=="" set "SHORT_HAUL_ENV=base"
 
 set "SHORT_HAUL_HOST=%SHORT_HAUL_HOST%"
 if "%SHORT_HAUL_HOST%"=="" set "SHORT_HAUL_HOST=127.0.0.1"

@@ -74,17 +74,23 @@ def render() -> None:
     draw.rounded_rectangle((198, 272, 410, 308), radius=6, fill="#0f766e", outline="#0f766e")
     label(draw, (260, 282), "运行优化", FONT_13, "#ffffff")
 
-    label(draw, (42, 334), "车辆容量", FONT_12, "#667085")
-    input_box(draw, (42, 354, 210, 392), "1000")
-    label(draw, (232, 334), "容器容量", FONT_12, "#667085")
-    input_box(draw, (232, 354, 410, 392), "800")
+    label(draw, (42, 330), "上传本地文件运行", FONT_14)
+    input_box(draw, (42, 356, 210, 394), "payload.json")
+    input_box(draw, (232, 356, 410, 394), "CSV 文件组")
+    draw.rounded_rectangle((42, 406, 410, 442), radius=6, fill="#0f766e", outline="#0f766e")
+    label(draw, (180, 416), "上传并运行", FONT_13, "#ffffff")
 
-    label(draw, (42, 414), "最大串点数", FONT_12, "#667085")
-    input_box(draw, (42, 434, 210, 472), "3")
-    label(draw, (232, 414), "尾货策略", FONT_12, "#667085")
-    input_box(draw, (232, 434, 410, 472), "成本优先")
+    label(draw, (42, 466), "车辆容量", FONT_12, "#667085")
+    input_box(draw, (42, 486, 210, 524), "1000")
+    label(draw, (232, 466), "容器容量", FONT_12, "#667085")
+    input_box(draw, (232, 486, 410, 524), "800")
 
-    label(draw, (42, 500), "优化目标权重", FONT_14)
+    label(draw, (42, 546), "最大串点数", FONT_12, "#667085")
+    input_box(draw, (42, 566, 210, 604), "3")
+    label(draw, (232, 546), "尾货策略", FONT_12, "#667085")
+    input_box(draw, (232, 566, 410, 604), "成本优先")
+
+    label(draw, (42, 630), "优化目标权重", FONT_14)
     for idx, (name, value, color) in enumerate(
         [
             ("成本", 0.92, "#0f766e"),
@@ -92,14 +98,12 @@ def render() -> None:
             ("装载率", 0.36, "#4f46e5"),
         ]
     ):
-        y = 532 + idx * 44
+        y = 658 + idx * 34
         label(draw, (42, y), name, FONT_12, "#667085")
         draw.rounded_rectangle((118, y + 3, 385, y + 13), radius=5, fill="#e5e7eb")
         draw.rounded_rectangle((118, y + 3, int(118 + 267 * value), y + 13), radius=5, fill=color)
 
-    label(draw, (42, 676), "场景 JSON 编辑器", FONT_14)
-    draw.rounded_rectangle((42, 704, 410, 792), radius=6, fill="#0f172a", outline="#0f172a")
-    label(draw, (58, 722), '{ "routes": [...], "forecast": [...], "fleets": [...] }', FONT_13, "#dbeafe")
+    label(draw, (42, 766), "JSON/API 同步输出", FONT_14)
 
     box(draw, (454, 86, 1414, 812))
     draw.rectangle((455, 87, 1413, 126), fill="#fafbfc")

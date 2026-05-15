@@ -280,6 +280,31 @@ DASHBOARD_HTML = r"""<!doctype html>
       line-height: 1.5;
     }
     .hint { color: var(--muted); font-size: 12px; margin-top: 8px; }
+    .file-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin-top: 12px;
+    }
+    .file-row {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 10px;
+      background: #fbfcfe;
+    }
+    .file-row input { padding: 6px; background: #fff; }
+    .link-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 10px;
+    }
+    .link-row a {
+      color: var(--accent-2);
+      text-decoration: none;
+      font-weight: 640;
+      font-size: 12px;
+    }
     .hint-list {
       margin: 0 0 10px 18px;
       padding: 0;
@@ -326,6 +351,51 @@ DASHBOARD_HTML = r"""<!doctype html>
             <textarea id="request"></textarea>
           </div>
           <div class="hint" data-i18n="scenarioHint">可替换下方 JSON 中的线路、车队和预测货量，用于同类调度问题。</div>
+        </div>
+      </section>
+      <section>
+        <h2 data-i18n="uploadTitle">上传本地文件运行</h2>
+        <div class="body">
+          <div class="hint" data-i18n="uploadIntro">支持直接上传完整 payload.json，或上传标准 CSV 文件组：fleets.csv、routes.csv、forecast.csv。上传后会调用同一套求解器并在右侧展示 KPI 与甘特图。</div>
+          <div class="file-grid">
+            <div class="file-row">
+              <label for="payloadFile" data-i18n="payloadFile">完整 payload.json（可选）</label>
+              <input id="payloadFile" type="file" accept=".json,application/json" />
+            </div>
+            <div class="file-row">
+              <label for="fleetsFile">fleets.csv</label>
+              <input id="fleetsFile" type="file" accept=".csv,text/csv" />
+            </div>
+            <div class="file-row">
+              <label for="routesFile">routes.csv</label>
+              <input id="routesFile" type="file" accept=".csv,text/csv" />
+            </div>
+            <div class="file-row">
+              <label for="forecastFile">forecast.csv</label>
+              <input id="forecastFile" type="file" accept=".csv,text/csv" />
+            </div>
+            <div class="file-row">
+              <label for="milkRunFile">milk_run_pairs.csv</label>
+              <input id="milkRunFile" type="file" accept=".csv,text/csv" />
+            </div>
+            <div class="file-row">
+              <label for="configFile">config_overrides.json</label>
+              <input id="configFile" type="file" accept=".json,application/json" />
+            </div>
+          </div>
+          <div class="grid-2" style="margin-top:12px">
+            <div><label for="uploadInstanceId" data-i18n="uploadInstanceId">场景 ID</label><input id="uploadInstanceId" value="uploaded-instance" /></div>
+            <div><label for="uploadDate" data-i18n="uploadDate">计划日期</label><input id="uploadDate" value="2024-12-16" /></div>
+          </div>
+          <div class="toolbar" style="margin-top:12px">
+            <button id="runUpload" class="primary" data-i18n="runUpload">上传并运行</button>
+            <button id="clearUpload" data-i18n="clearUpload">清空上传文件</button>
+          </div>
+          <div class="hint" data-i18n="uploadDPackage">完整案例数据包可由 scripts/export_d_problem_upload_package.py 生成，生成后选择其中的 CSV 或 payload.json 即可运行。</div>
+          <div class="link-row">
+            <a href="/schema" target="_blank" rel="noreferrer" data-i18n="schemaLink">查看输入契约</a>
+            <a href="/templates" target="_blank" rel="noreferrer" data-i18n="templateLink">查看 CSV 模板</a>
+          </div>
         </div>
       </section>
       <section>
@@ -408,6 +478,16 @@ DASHBOARD_HTML = r"""<!doctype html>
         runOptimization: "运行优化",
         requestLabel: "调度需求",
         scenarioHint: "可替换下方 JSON 中的线路、车队和预测货量，用于同类调度问题。",
+        uploadTitle: "上传本地文件运行",
+        uploadIntro: "支持直接上传完整 payload.json，或上传标准 CSV 文件组：fleets.csv、routes.csv、forecast.csv。上传后会调用同一套求解器并在右侧展示 KPI 与甘特图。",
+        payloadFile: "完整 payload.json（可选）",
+        uploadInstanceId: "场景 ID",
+        uploadDate: "计划日期",
+        runUpload: "上传并运行",
+        clearUpload: "清空上传文件",
+        uploadDPackage: "完整案例数据包可由 scripts/export_d_problem_upload_package.py 生成，生成后选择其中的 CSV 或 payload.json 即可运行。",
+        schemaLink: "查看输入契约",
+        templateLink: "查看 CSV 模板",
         constraintsTitle: "约束与优化目标",
         vehicleCapacity: "车辆容量",
         containerCapacity: "容器容量",
@@ -439,6 +519,8 @@ DASHBOARD_HTML = r"""<!doctype html>
         statusValid: "数据校验通过",
         statusInvalid: "数据校验未通过",
         statusSolving: "正在求解...",
+        statusUploading: "正在上传并求解...",
+        statusUploadMissing: "缺少必需上传文件",
         statusSolved: "求解完成",
         statusFailed: "运行失败",
         totalCost: "总成本",
@@ -458,6 +540,16 @@ DASHBOARD_HTML = r"""<!doctype html>
         runOptimization: "Run optimization",
         requestLabel: "Scheduling request",
         scenarioHint: "Replace the instance JSON with your own routes, fleets, and forecast buckets for similar dispatch problems.",
+        uploadTitle: "Upload local files",
+        uploadIntro: "Upload a complete payload.json, or upload the standard CSV set: fleets.csv, routes.csv, and forecast.csv. The same solver runs and the KPIs/Gantt chart appear on the right.",
+        payloadFile: "Complete payload.json (optional)",
+        uploadInstanceId: "Instance ID",
+        uploadDate: "Planning date",
+        runUpload: "Upload and run",
+        clearUpload: "Clear uploaded files",
+        uploadDPackage: "The full example package can be generated by scripts/export_d_problem_upload_package.py. Select its CSV files or payload.json here to run it.",
+        schemaLink: "View input contract",
+        templateLink: "View CSV templates",
         constraintsTitle: "Constraints and objective",
         vehicleCapacity: "Vehicle capacity",
         containerCapacity: "Container capacity",
@@ -489,6 +581,8 @@ DASHBOARD_HTML = r"""<!doctype html>
         statusValid: "Data validation passed",
         statusInvalid: "Data validation failed",
         statusSolving: "Solving...",
+        statusUploading: "Uploading and solving...",
+        statusUploadMissing: "Missing required upload files",
         statusSolved: "Solved",
         statusFailed: "Run failed",
         totalCost: "Total cost",
@@ -555,19 +649,22 @@ DASHBOARD_HTML = r"""<!doctype html>
       lastDemoPayload = payload;
       $("request").value = sampleRequestForLanguage(payload);
       $("instance").value = JSON.stringify(payload.instance, null, 2);
-      const cfg = payload.config_overrides || {};
+      applyConfig(payload.config_overrides || {}, payload.prefer_cpsat !== false);
+      setStatusKey("statusLoaded");
+    }
+
+    function applyConfig(cfg = {}, preferCpsat = $("preferCpsat").checked) {
       $("vehicleCapacity").value = cfg.vehicle_capacity || 1000;
       $("containerCapacity").value = cfg.container_capacity || 800;
       $("maxStops").value = cfg.max_stops || 3;
       $("tailStrategy").value = cfg.tail_cover_strategy || "cost_aware";
       $("allowContainer").checked = cfg.allow_container !== false;
       $("allowExternal").checked = cfg.allow_external !== false;
-      $("preferCpsat").checked = payload.prefer_cpsat !== false;
+      $("preferCpsat").checked = preferCpsat;
       const weights = cfg.objective_weights || {};
       $("costWeight").value = weights.cost || 1;
       $("turnoverWeight").value = weights.turnover || 0.5;
       $("fillWeight").value = weights.fill_rate || 0.2;
-      setStatusKey("statusLoaded");
     }
 
     function configOverrides() {
@@ -614,6 +711,73 @@ DASHBOARD_HTML = r"""<!doctype html>
       }
     }
 
+    async function runUploadedSchedule() {
+      $("runUpload").disabled = true;
+      setStatusKey("statusUploading");
+      try {
+        const payloadFile = $("payloadFile").files[0];
+        const formData = new FormData();
+        formData.append("prefer_cpsat", $("preferCpsat").checked ? "true" : "false");
+        formData.append("config_overrides_json", JSON.stringify(configOverrides()));
+
+        if (payloadFile) {
+          const payloadText = await payloadFile.text();
+          const uploadedPayload = JSON.parse(payloadText);
+          if (uploadedPayload.request) {
+            $("request").value = uploadedPayload.request;
+          }
+          if (uploadedPayload.instance) {
+            $("instance").value = JSON.stringify(uploadedPayload.instance, null, 2);
+          }
+          applyConfig(uploadedPayload.config_overrides || configOverrides(), uploadedPayload.prefer_cpsat !== false);
+          formData.set("prefer_cpsat", $("preferCpsat").checked ? "true" : "false");
+          formData.set("config_overrides_json", JSON.stringify(configOverrides()));
+          formData.append("payload_json", payloadFile);
+        } else {
+          const required = [
+            ["fleetsFile", "fleets"],
+            ["routesFile", "routes"],
+            ["forecastFile", "forecast"]
+          ];
+          const missing = required.filter(([id]) => !$(id).files[0]).map(([, name]) => `${name}.csv`);
+          if (missing.length) {
+            throw new Error(`${t("statusUploadMissing")}: ${missing.join(", ")}`);
+          }
+          formData.append("request", $("request").value || "请根据上传数据生成短途运输调度方案。");
+          formData.append("instance_id", $("uploadInstanceId").value || "uploaded-instance");
+          formData.append("date", $("uploadDate").value || "");
+          formData.append("fleets", $("fleetsFile").files[0]);
+          formData.append("routes", $("routesFile").files[0]);
+          formData.append("forecast", $("forecastFile").files[0]);
+          if ($("milkRunFile").files[0]) {
+            formData.append("milk_run_pairs", $("milkRunFile").files[0]);
+          }
+          if ($("configFile").files[0]) {
+            formData.append("config_overrides", $("configFile").files[0]);
+          }
+        }
+
+        const response = await fetch("/schedule/upload", {method: "POST", body: formData});
+        const solution = await response.json();
+        if (!response.ok || solution.error) {
+          throw new Error(solution.detail || JSON.stringify(solution));
+        }
+        renderSolution(solution);
+        setStatusKey("statusSolved", false, `${solution.solution.solver}: ${solution.solution.status}`);
+      } catch (error) {
+        setStatusKey("statusFailed", true, error.message);
+      } finally {
+        $("runUpload").disabled = false;
+      }
+    }
+
+    function clearUploadedFiles() {
+      ["payloadFile", "fleetsFile", "routesFile", "forecastFile", "milkRunFile", "configFile"].forEach((id) => {
+        $(id).value = "";
+      });
+      setStatusKey("statusInitial");
+    }
+
     async function validateCurrentData() {
       $("validateData").disabled = true;
       setStatusKey("statusValidating");
@@ -647,14 +811,16 @@ DASHBOARD_HTML = r"""<!doctype html>
       const solution = result.solution || {};
       const k = solution.kpis || {};
       const metrics = [
-        [t("totalCost"), k.total_cost],
-        [t("ownTurnover"), k.own_vehicle_turnover],
-        [t("externalTasks"), k.external_task_count],
-        [t("fillRate"), k.fill_rate],
-        [t("tasks"), k.task_count]
+        [t("totalCost"), k.total_cost, "number"],
+        [t("ownTurnover"), k.own_vehicle_turnover, "number"],
+        [t("externalTasks"), k.external_task_count, "number"],
+        [t("fillRate"), k.fill_rate, "percent"],
+        [t("tasks"), k.task_count, "number"]
       ];
-      $("metrics").innerHTML = metrics.map(([label, value]) => {
-        const display = typeof value === "number" ? (label.includes("rate") ? `${(value * 100).toFixed(1)}%` : value.toFixed(value % 1 ? 2 : 0)) : "-";
+      $("metrics").innerHTML = metrics.map(([label, value, format]) => {
+        const display = typeof value === "number"
+          ? (format === "percent" ? `${(value * 100).toFixed(1)}%` : value.toFixed(value % 1 ? 2 : 0))
+          : "-";
         return `<div class="metric"><span>${label}</span><strong>${display}</strong></div>`;
       }).join("");
       $("warnings").innerHTML = (solution.warnings || []).slice(0, 6).map(item => `<span class="pill">${escapeHtml(item)}</span>`).join("");
@@ -718,6 +884,8 @@ DASHBOARD_HTML = r"""<!doctype html>
     $("loadDemo").addEventListener("click", loadDemo);
     $("validateData").addEventListener("click", validateCurrentData);
     $("run").addEventListener("click", runSchedule);
+    $("runUpload").addEventListener("click", runUploadedSchedule);
+    $("clearUpload").addEventListener("click", clearUploadedFiles);
     $("language").addEventListener("change", (event) => {
       currentLang = event.target.value;
       applyLanguage();

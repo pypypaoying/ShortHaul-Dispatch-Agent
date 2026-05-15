@@ -8,6 +8,7 @@ from pathlib import Path
 
 from shorthaul_agent import DispatchOrchestrator, ProblemConfig
 from shorthaul_agent.baseline_comparison import compare_baselines
+from shorthaul_agent.d_problem_package import DEFAULT_UPLOAD_REQUEST, export_d_problem_upload_package
 from shorthaul_agent.experiment import run_experiment, run_task_generation_tuning
 from shorthaul_agent.external_io import build_payload_from_csv_dir
 from shorthaul_agent.io import load_instance, write_json
@@ -79,6 +80,30 @@ def main() -> None:
         print(f"Rows: {summary['row_count']}")
         print(f"Best: {summary['best']}")
         print(f"Outputs written to {args.output_dir}")
+        return
+
+    if len(sys.argv) > 1 and sys.argv[1] == "export-d-upload-package":
+        parser = argparse.ArgumentParser(description="Export the local benchmark dataset into UI/API upload files.")
+        parser.add_argument("command")
+        parser.add_argument("--data-dir", default="D题", help="Folder containing 附件/ and 结果表/.")
+        parser.add_argument("--output-dir", default="outputs_d_problem_upload_package", help="Folder to write upload-ready files.")
+        parser.add_argument("--target-date", default="2024-12-16", help="Planning date used for the generated scenario.")
+        parser.add_argument("--base-date", default="2024-12-15", help="Minute-offset base date.")
+        parser.add_argument("--request", default="", help="Optional natural-language request text.")
+        parser.add_argument("--no-cpsat", action="store_true", help="Set prefer_cpsat=false in payload.json.")
+        args = parser.parse_args()
+        manifest = export_d_problem_upload_package(
+            args.data_dir,
+            args.output_dir,
+            target_date=args.target_date,
+            base_date=args.base_date,
+            request_text=args.request.strip() or DEFAULT_UPLOAD_REQUEST,
+            prefer_cpsat=not args.no_cpsat,
+        )
+        print(f"Upload package written to {Path(args.output_dir).resolve()}")
+        print(f"Routes: {manifest['route_count']}")
+        print(f"Fleets: {manifest['fleet_count']}")
+        print(f"Forecast buckets: {manifest['forecast_bucket_count']}")
         return
 
     if len(sys.argv) > 1 and sys.argv[1] == "build-payload":

@@ -1,8 +1,9 @@
 """Optional FastAPI service for the scheduling agent."""
 
 import json
+import tempfile
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from shorthaul_agent import DispatchOrchestrator, ProblemConfig
 from shorthaul_agent.experiment import load_experiment_config, run_experiment
@@ -12,9 +13,30 @@ from shorthaul_agent.validation import validate_instance
 from shorthaul_agent.web_ui import demo_payload, render_dashboard_html
 
 
+CSV_UPLOAD_ALIASES = {
+    "fleets": "fleets.csv",
+    "fleets_csv": "fleets.csv",
+    "fleets.csv": "fleets.csv",
+    "routes": "routes.csv",
+    "routes_csv": "routes.csv",
+    "routes.csv": "routes.csv",
+    "forecast": "forecast.csv",
+    "forecast_csv": "forecast.csv",
+    "forecast.csv": "forecast.csv",
+    "milk_run_pairs": "milk_run_pairs.csv",
+    "milk_run_pairs_csv": "milk_run_pairs.csv",
+    "milk_run_pairs.csv": "milk_run_pairs.csv",
+    "config_overrides": "config_overrides.json",
+    "config_overrides_json": "config_overrides.json",
+    "config_overrides.json": "config_overrides.json",
+}
+PAYLOAD_UPLOAD_FIELDS = {"payload", "payload_json", "schedule_payload"}
+PAYLOAD_UPLOAD_FILENAMES = {"payload.json", "schedule_payload.json"}
+
+
 def create_app():
     try:
-        from fastapi import Body, FastAPI
+        from fastapi import Body, FastAPI, HTTPException, Request
         from fastapi.responses import HTMLResponse
         from pydantic import BaseModel, Field
     except ImportError as exc:
@@ -119,6 +141,28 @@ def create_app():
         config = ProblemConfig(prefer_cpsat=payload.prefer_cpsat).merged(payload.config_overrides)
         return DispatchOrchestrator(config).run(payload.request, instance).to_dict()
 
+    @app.post("/schedule/upload")
+    async def schedule_upload(request: Request) -> Dict[str, Any]:
+        try:
+            form = await request.form()
+        except Exception as exc:
+            raise HTTPException(
+                status_code=400,
+                detail="Cannot parse multipart upload. Install the API extra with python-multipart enabled.",
+            ) from exc
+
+        try:
+            payload, upload_meta = await _payload_from_multipart_form(form)
+            instance = Instance.from_dict(payload["instance"])
+            config = ProblemConfig(prefer_cpsat=bool(payload.get("prefer_cpsat", True))).merged(
+                payload.get("config_overrides", {})
+            )
+            result = DispatchOrchestrator(config).run(str(payload.get("request", "")), instance).to_dict()
+            result["upload"] = upload_meta
+            return result
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
     @app.post("/schedule/from-csv-dir")
     def schedule_from_csv_dir(payload: CsvScheduleRequest = Body(...)) -> Dict[str, Any]:
         schedule_payload = build_payload_from_csv_dir(
@@ -146,3 +190,101 @@ def create_app():
 
 
 app = create_app()
+
+
+async def _payload_from_multipart_form(form: Any) -> tuple[Dict[str, Any], Dict[str, Any]]:
+    request_text = _form_text(form, "request") or "请根据上传数据生成短途运输调度方案。"
+    instance_id = _form_text(form, "instance_id") or "uploaded-instance"
+    date = _form_text(form, "date") or ""
+    prefer_cpsat = _form_bool(form.get("prefer_cpsat"), default=True)
+    form_overrides = _parse_json_text(_form_text(form, "config_overrides_json") or "", default={})
+    force_request = _form_bool(form.get("force_request"), default=False)
+
+    uploaded_payload: Optional[Dict[str, Any]] = None
+    uploaded_files: Dict[str, bytes] = {}
+    uploaded_names: list[str] = []
+    for field_name, value in _form_items(form):
+        if not _is_upload_file(value):
+            continue
+        raw_name = str(getattr(value, "filename", "") or "")
+        if not raw_name:
+            continue
+        content = await value.read()
+        filename = Path(raw_name).name
+        filename_key = filename.lower()
+        field_key = str(field_name).lower()
+        uploaded_names.append(filename)
+        if field_key in PAYLOAD_UPLOAD_FIELDS or filename_key in PAYLOAD_UPLOAD_FILENAMES:
+            uploaded_payload = json.loads(content.decode("utf-8-sig"))
+            continue
+        canonical = CSV_UPLOAD_ALIASES.get(field_key) or CSV_UPLOAD_ALIASES.get(filename_key)
+        if canonical:
+            uploaded_files[canonical] = content
+
+    if uploaded_payload is not None:
+        payload = dict(uploaded_payload)
+        if force_request or not payload.get("request"):
+            payload["request"] = request_text
+        payload["prefer_cpsat"] = prefer_cpsat
+        payload["config_overrides"] = _merge_dicts(payload.get("config_overrides", {}), form_overrides)
+        return payload, {"source": "payload_json", "files": uploaded_names}
+
+    missing = [name for name in ("fleets.csv", "routes.csv", "forecast.csv") if name not in uploaded_files]
+    if missing:
+        raise ValueError(f"Missing required upload files: {', '.join(missing)}")
+
+    with tempfile.TemporaryDirectory(prefix="shorthaul-upload-") as tmp_dir:
+        tmp_path = Path(tmp_dir)
+        for filename, content in uploaded_files.items():
+            (tmp_path / filename).write_bytes(content)
+        payload = build_payload_from_csv_dir(
+            tmp_path,
+            request_text,
+            instance_id=instance_id,
+            date=date,
+            prefer_cpsat=prefer_cpsat,
+            config_overrides=form_overrides,
+        )
+    return payload, {"source": "csv_upload", "files": sorted(uploaded_files)}
+
+
+def _form_text(form: Any, key: str) -> str:
+    value = form.get(key)
+    return "" if value is None or _is_upload_file(value) else str(value).strip()
+
+
+def _form_bool(value: Any, default: bool) -> bool:
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _form_items(form: Any) -> list[tuple[str, Any]]:
+    if hasattr(form, "multi_items"):
+        return list(form.multi_items())
+    return list(form.items())
+
+
+def _is_upload_file(value: Any) -> bool:
+    return hasattr(value, "filename") and hasattr(value, "read")
+
+
+def _parse_json_text(text: str, default: Dict[str, Any]) -> Dict[str, Any]:
+    if not text:
+        return dict(default)
+    value = json.loads(text)
+    if not isinstance(value, dict):
+        raise ValueError("config_overrides_json must be a JSON object.")
+    return value
+
+
+def _merge_dicts(base: Dict[str, Any], overrides: Dict[str, Any]) -> Dict[str, Any]:
+    merged = dict(base or {})
+    for key, value in (overrides or {}).items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = _merge_dicts(merged[key], value)
+        else:
+            merged[key] = value
+    return merged

@@ -86,6 +86,12 @@ def schema_payload() -> dict[str, Any]:
             "config_overrides": "ProblemConfig overrides such as capacity and objective weights.",
             "instance": "Scenario object containing fleets, routes, and forecast buckets.",
         },
+        "endpoints": {
+            "json_solve": "POST /schedule",
+            "multipart_upload_solve": "POST /schedule/upload",
+            "server_local_csv_solve": "POST /schedule/from-csv-dir",
+            "validate_json": "POST /validate-instance",
+        },
     }
 
 

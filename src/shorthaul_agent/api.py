@@ -9,11 +9,13 @@ from typing import Any, Dict
 from shorthaul_agent import DispatchOrchestrator, ProblemConfig
 from shorthaul_agent.experiment import load_experiment_config, run_experiment
 from shorthaul_agent.models import Instance
+from shorthaul_agent.web_ui import demo_payload, render_dashboard_html
 
 
 def create_app():
     try:
         from fastapi import FastAPI
+        from fastapi.responses import HTMLResponse
         from pydantic import BaseModel, Field
     except ImportError as exc:
         raise RuntimeError("Install the API extra first: pip install -e '.[api]'") from exc
@@ -22,9 +24,10 @@ def create_app():
         request: str = Field(..., description="Natural-language dispatch request.")
         instance: Dict[str, Any] = Field(..., description="Short-haul instance JSON.")
         prefer_cpsat: bool = True
+        config_overrides: Dict[str, Any] = Field(default_factory=dict, description="ProblemConfig overrides and objective weights.")
 
     class ExperimentRequest(BaseModel):
-        data_dir: str = "D题"
+        data_dir: str = "D_PROBLEM_DATA"
         output_dir: str = "outputs"
         prefer_cpsat: bool = True
 
@@ -37,6 +40,14 @@ def create_app():
     @app.get("/health")
     def health() -> Dict[str, str]:
         return {"status": "ok"}
+
+    @app.get("/", response_class=HTMLResponse)
+    def dashboard() -> HTMLResponse:
+        return HTMLResponse(render_dashboard_html())
+
+    @app.get("/demo")
+    def demo() -> Dict[str, Any]:
+        return demo_payload()
 
     @app.get("/experiments")
     def experiments() -> Dict[str, Any]:
@@ -82,7 +93,7 @@ def create_app():
     @app.post("/schedule")
     def schedule(payload: ScheduleRequest) -> Dict[str, Any]:
         instance = Instance.from_dict(payload.instance)
-        config = ProblemConfig(prefer_cpsat=payload.prefer_cpsat)
+        config = ProblemConfig(prefer_cpsat=payload.prefer_cpsat).merged(payload.config_overrides)
         return DispatchOrchestrator(config).run(payload.request, instance).to_dict()
 
     @app.post("/experiments/d-problem")

@@ -53,7 +53,7 @@ $env:SHORT_HAUL_INGESTION_MODEL="your-ingestion-model"
 
 ```powershell
 python -m pip install -U pip
-python -m pip install -e ".[solver,api,llm]"
+python -m pip install -e ".[solver,api]"
 ```
 
 本地源码运行时设置：
@@ -65,8 +65,10 @@ $env:PYTHONPATH="src"
 开发、实验和跟踪依赖：
 
 ```powershell
-python -m pip install -e ".[dev,experiment,tracking,llm]"
+python -m pip install -e ".[dev,experiment,tracking]"
 ```
+
+`llm` extra 会额外安装 OpenAI Python SDK；未安装时，数据接入 Agent 会自动使用内置 HTTP 客户端调用兼容的 Chat Completions 接口。
 
 ## 启动 Web UI
 

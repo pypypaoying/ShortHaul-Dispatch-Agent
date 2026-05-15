@@ -6,6 +6,8 @@ import json
 import os
 import re
 import tempfile
+import urllib.error
+import urllib.request
 from dataclasses import dataclass
 from io import BytesIO
 from pathlib import Path
@@ -378,12 +380,8 @@ class DataIngestionAgent:
     def _call_llm(self, prompt: str) -> str:
         try:
             from openai import OpenAI
-        except ImportError as exc:
-            raise ValueError(
-                "数据接入 Agent 需要安装 openai Python SDK。"
-                "这里把它作为 OpenAI-compatible 客户端使用，并不限制官方 OpenAI 服务："
-                "python -m pip install -e '.[llm]'"
-            ) from exc
+        except ImportError:
+            return self._call_llm_via_http(prompt)
 
         client_kwargs = {"api_key": self.config.api_key}
         if self.config.base_url:
@@ -402,6 +400,46 @@ class DataIngestionAgent:
         )
         content = response.choices[0].message.content or ""
         return content.strip()
+
+    def _call_llm_via_http(self, prompt: str) -> str:
+        url = _chat_completions_url(self.config.base_url)
+        body = json.dumps(
+            {
+                "model": self.config.model,
+                "messages": [
+                    {
+                        "role": "system",
+                        "content": "你只输出可以被 json.loads 解析的 JSON。",
+                    },
+                    {"role": "user", "content": prompt},
+                ],
+                "temperature": 0,
+            },
+            ensure_ascii=False,
+        ).encode("utf-8")
+        request = urllib.request.Request(
+            url,
+            data=body,
+            headers={
+                "Authorization": f"Bearer {self.config.api_key}",
+                "Content-Type": "application/json",
+            },
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=60) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+        except urllib.error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", errors="replace")
+            raise ValueError(f"数据接入 Agent LLM API 请求失败：HTTP {exc.code} {detail[:500]}") from exc
+        except urllib.error.URLError as exc:
+            raise ValueError(f"数据接入 Agent LLM API 无法连接：{exc.reason}") from exc
+
+        try:
+            content = payload["choices"][0]["message"]["content"]
+        except (KeyError, IndexError, TypeError) as exc:
+            raise ValueError("数据接入 Agent LLM API 返回格式不兼容 Chat Completions。") from exc
+        return str(content or "").strip()
 
     def _try_direct_json_payload(
         self,
@@ -515,3 +553,10 @@ def _mapping_value(value: Any) -> str:
     if value is None:
         return ""
     return str(value).strip()
+
+
+def _chat_completions_url(base_url: str) -> str:
+    base = (base_url or "https://api.openai.com/v1").strip().rstrip("/")
+    if base.endswith("/chat/completions"):
+        return base
+    return f"{base}/chat/completions"

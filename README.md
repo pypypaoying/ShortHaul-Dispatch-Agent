@@ -147,10 +147,12 @@ python -m shorthaul_agent.cli export-d-upload-package --data-dir BENCHMARK_DATA_
 
 ## 数据接入 Agent
 
-数据接入 Agent 负责把外部业务数据转换为调度器可验证的结构化输入。它支持两种路径：
+数据接入 Agent 负责把外部业务数据转换为调度器可验证的结构化输入。上传后会先经过 Router 判别，不要求用户自己判断数据是否结构化：
 
-- 本地解析：字段已经清晰或接近常见命名时，直接在本地完成对齐，不调用 LLM。
-- LLM 对齐：字段混乱、sheet 名不固定或用户粘贴的是非标准表格时，调用用户配置的 OpenAI-compatible API 生成字段映射，再交给本地校验器验证。
+- 标准 payload：检测到完整 `payload.json` 时直接运行。
+- 标准接口表：检测到 `fleets.csv`、`routes.csv`、`forecast.csv` 或标准工作簿时本地解析。
+- 原始结构化附件：检测到线路、历史 10 分钟货量、日度预知货量、串点关系、车队数量等列集合时，本地生成预测与调度输入，不调用 LLM。
+- LLM 对齐：只有前面规则都不匹配时，才调用用户配置的 OpenAI-compatible / Chat Completions-compatible API。
 
 用户可以接入自己的微调数据接入模型；系统只需要一个兼容 Chat Completions 的 API 地址、Key 和模型名。生产部署时建议通过环境变量配置密钥，Web UI 中填写的密钥仅随本次上传请求提交给当前服务端。
 

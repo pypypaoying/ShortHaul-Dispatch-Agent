@@ -145,6 +145,8 @@ http://127.0.0.1:8000/
 8. 查看调度甘特图和完整 JSON 响应。
 9. 多选导出完整结果 JSON、调度明细 CSV、KPI JSON、接入元数据和告警文件。
 
+Web UI 的上传运行使用后台任务接口 `/schedule/upload/jobs`，页面会轮询真实服务端阶段状态；不再依赖前端估计进度。导出的 `assignments.csv` 使用 UTF-8 BOM，直接用 Windows Excel 或 WPS 打开时中文不应乱码。
+
 ## 准备完整案例数据包
 
 本地存在完整案例数据时，可以先导出一份与 UI/API 对齐的上传数据包：
@@ -240,6 +242,8 @@ Content-Type: application/json
   "files": ["solution_json", "assignments_csv", "kpis_json", "upload_meta_json", "warnings_txt"]
 }
 ```
+
+`assignments_csv` 会写入 `assignments.csv`，编码为 UTF-8 with BOM，便于 Windows Excel 直接打开。
 
 推荐上传方式：
 

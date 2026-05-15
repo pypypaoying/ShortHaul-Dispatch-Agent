@@ -1148,19 +1148,7 @@ DASHBOARD_HTML = r"""<!doctype html>
           }
         }
 
-        setStage("prepare", "done", t("stageDone"));
-        setStage("router", "active", t("stageActive"));
-        setStage("align", "active", t("stageActive"));
-        const response = await fetch("/schedule/upload", {method: "POST", body: formData});
-        setStage("router", "done", t("stageDone"));
-        setStage("align", "done", t("stageDone"));
-        setStage("validate", "active", t("stageActive"));
-        const solution = await response.json();
-        if (!response.ok || solution.error) {
-          throw new Error(solution.detail || JSON.stringify(solution));
-        }
-        setStage("validate", "done", t("stageDone"));
-        setStage("solve", "done", (solution.solution || {}).solver || t("stageDone"));
+        const solution = await startUploadJob(formData);
         setStage("render", "active", t("stageActive"));
         renderSolution(solution);
         updatePipelineFromResult(solution);
@@ -1175,6 +1163,57 @@ DASHBOARD_HTML = r"""<!doctype html>
       } finally {
         $("runUpload").disabled = false;
       }
+    }
+
+    async function startUploadJob(formData) {
+      const response = await fetch("/schedule/upload/jobs", {method: "POST", body: formData});
+      const started = await response.json();
+      if (!response.ok || !started.job_id) {
+        throw new Error(started.detail || JSON.stringify(started));
+      }
+      return pollUploadJob(started.job_id);
+    }
+
+    async function pollUploadJob(jobId) {
+      while (true) {
+        await sleep(450);
+        const response = await fetch(`/schedule/upload/jobs/${encodeURIComponent(jobId)}`);
+        const job = await response.json();
+        if (!response.ok) {
+          throw new Error(job.detail || JSON.stringify(job));
+        }
+        updatePipelineFromJob(job);
+        if (job.status === "completed") {
+          return job.result;
+        }
+        if (job.status === "failed") {
+          throw new Error(job.error || job.message || t("statusFailed"));
+        }
+      }
+    }
+
+    function updatePipelineFromJob(job) {
+      const stages = job.stages || {};
+      pipelineStages.forEach((stage) => {
+        const info = stages[stage] || {};
+        const node = document.querySelector(`[data-stage="${stage}"]`);
+        if (!node) {
+          return;
+        }
+        if (info.state && info.state !== "pending") {
+          markStageDetail(stage, info.state, info.label || t("stageActive"));
+        } else if (!node.dataset.customLabel) {
+          setStage(stage, "pending", t("stagePending"));
+        }
+      });
+      if (job.status === "running" || job.status === "queued") {
+        const label = job.message || job.stage || "";
+        setStatusKey("statusUploading", false, label);
+      }
+    }
+
+    function sleep(ms) {
+      return new Promise((resolve) => window.setTimeout(resolve, ms));
     }
 
     function clearUploadedFiles() {

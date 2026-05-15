@@ -1,5 +1,6 @@
 import json
 import sys
+import time
 import zipfile
 from contextlib import ExitStack
 from io import BytesIO
@@ -54,7 +55,9 @@ def test_schedule_export_returns_selected_zip_files():
     assert response.headers["content-type"].startswith("application/zip")
     with zipfile.ZipFile(BytesIO(response.content)) as archive:
         assert sorted(archive.namelist()) == ["assignments.csv", "kpis.json", "solution.json"]
-        assert "task_id" in archive.read("assignments.csv").decode("utf-8")
+        assignments_bytes = archive.read("assignments.csv")
+        assert assignments_bytes.startswith(b"\xef\xbb\xbf")
+        assert "task_id" in assignments_bytes.decode("utf-8-sig")
 
 
 def test_dashboard_defaults_to_chinese_and_has_language_selector():
@@ -139,6 +142,45 @@ def test_schedule_upload_accepts_csv_files():
     assert data["upload"]["source"] == "csv_upload"
     assert data["solution"]["status"] == "FEASIBLE"
     assert data["solution"]["kpis"]["assigned_task_count"] == data["solution"]["kpis"]["task_count"]
+
+
+def test_schedule_upload_job_reports_progress_and_result():
+    pytest.importorskip("multipart")
+    app = create_app()
+    client = TestClient(app)
+    payload = demo_payload()
+    payload["prefer_cpsat"] = False
+
+    start_response = client.post(
+        "/schedule/upload/jobs",
+        data={
+            "request": "Schedule uploaded payload.",
+            "prefer_cpsat": "false",
+        },
+        files={
+            "payload_json": (
+                "payload.json",
+                BytesIO(json.dumps(payload).encode("utf-8")),
+                "application/json",
+            )
+        },
+    )
+
+    assert start_response.status_code == 200
+    job_id = start_response.json()["job_id"]
+    job = {}
+    for _ in range(60):
+        status_response = client.get(f"/schedule/upload/jobs/{job_id}")
+        assert status_response.status_code == 200
+        job = status_response.json()
+        if job["status"] in {"completed", "failed"}:
+            break
+        time.sleep(0.05)
+
+    assert job["status"] == "completed"
+    assert job["stages"]["router"]["state"] == "done"
+    assert job["stages"]["solve"]["state"] == "done"
+    assert job["result"]["solution"]["status"] == "FEASIBLE"
 
 
 def test_schedule_explicit_config_overrides_parsed_request():

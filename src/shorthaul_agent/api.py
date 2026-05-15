@@ -1,14 +1,18 @@
 """Optional FastAPI service for the scheduling agent."""
 
+import csv
 import json
 import tempfile
+import threading
+import time
+import uuid
 import zipfile
-from io import BytesIO
+from io import BytesIO, StringIO
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Callable, Dict, Optional
 
 from shorthaul_agent import DispatchOrchestrator, ProblemConfig
-from shorthaul_agent.data_ingestion_agent import DataIngestionAgent, DataIngestionAgentConfig
+from shorthaul_agent.data_ingestion_agent import DataIngestionAgent, DataIngestionAgentConfig, _route_file_batch
 from shorthaul_agent.experiment import load_experiment_config, run_experiment
 from shorthaul_agent.external_io import (
     CSV_TEMPLATES,
@@ -46,6 +50,10 @@ PAYLOAD_UPLOAD_FILENAMES = {"payload.json", "schedule_payload.json"}
 WORKBOOK_UPLOAD_FIELDS = {"workbook", "xlsx", "excel", "scenario_workbook"}
 WORKBOOK_UPLOAD_SUFFIXES = {".xlsx", ".xlsm", ".xls"}
 DATA_AGENT_UPLOAD_FIELDS = {"data_file", "agent_file", "business_file", "user_data"}
+UPLOAD_JOB_STAGES = ("prepare", "router", "align", "validate", "solve", "render")
+UPLOAD_JOBS: dict[str, dict[str, Any]] = {}
+UPLOAD_JOBS_LOCK = threading.Lock()
+ProgressCallback = Callable[[str, str, str], None]
 
 
 def create_app():
@@ -221,6 +229,34 @@ def create_app():
         except Exception as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
+    @app.post("/schedule/upload/jobs")
+    async def schedule_upload_job(request: Request) -> Dict[str, Any]:
+        try:
+            form = await request.form()
+            fields, file_parts = await _multipart_form_to_parts(form)
+        except Exception as exc:
+            raise HTTPException(
+                status_code=400,
+                detail="Cannot parse multipart upload. Install the API extra with python-multipart enabled.",
+            ) from exc
+
+        job_id = _create_upload_job()
+        thread = threading.Thread(
+            target=_run_upload_job,
+            args=(job_id, fields, file_parts),
+            name=f"shorthaul-upload-{job_id[:8]}",
+            daemon=True,
+        )
+        thread.start()
+        return {"job_id": job_id, "status_url": f"/schedule/upload/jobs/{job_id}"}
+
+    @app.get("/schedule/upload/jobs/{job_id}")
+    def schedule_upload_job_status(job_id: str) -> Dict[str, Any]:
+        job = _get_upload_job(job_id)
+        if job is None:
+            raise HTTPException(status_code=404, detail="Upload job not found.")
+        return job
+
     @app.post("/schedule/from-csv-dir")
     def schedule_from_csv_dir(payload: CsvScheduleRequest = Body(...)) -> Dict[str, Any]:
         schedule_payload = build_payload_from_csv_dir(
@@ -265,20 +301,45 @@ app = create_app()
 
 
 async def _payload_from_multipart_form(form: Any) -> tuple[Dict[str, Any], Dict[str, Any]]:
-    request_text = _form_text(form, "request") or "请根据上传数据生成短途运输调度方案。"
-    instance_id = _form_text(form, "instance_id") or "uploaded-instance"
-    date = _form_text(form, "date") or ""
-    prefer_cpsat = _form_bool(form.get("prefer_cpsat"), default=True)
-    form_overrides = _parse_json_text(_form_text(form, "config_overrides_json") or "", default={})
-    force_request = _form_bool(form.get("force_request"), default=False)
-    use_data_agent = _form_bool(form.get("use_data_agent"), default=False)
-    raw_data_text = _form_text(form, "raw_data_text")
+    fields, file_parts = await _multipart_form_to_parts(form)
+    return _payload_from_multipart_parts(fields, file_parts)
+
+
+async def _multipart_form_to_parts(form: Any) -> tuple[dict[str, str], list[tuple[str, str, bytes]]]:
+    fields: dict[str, str] = {}
+    files: list[tuple[str, str, bytes]] = []
+    for field_name, value in _form_items(form):
+        if _is_upload_file(value):
+            raw_name = str(getattr(value, "filename", "") or "")
+            if not raw_name:
+                continue
+            files.append((str(field_name), Path(raw_name).name, await value.read()))
+        else:
+            fields[str(field_name)] = "" if value is None else str(value).strip()
+    return fields, files
+
+
+def _payload_from_multipart_parts(
+    fields: dict[str, str],
+    file_parts: list[tuple[str, str, bytes]],
+    progress: Optional[ProgressCallback] = None,
+) -> tuple[Dict[str, Any], Dict[str, Any]]:
+    progress = progress or (lambda stage, state, label: None)
+    progress("prepare", "active", "解析上传表单")
+    request_text = fields.get("request", "").strip() or "请根据上传数据生成短途运输调度方案。"
+    instance_id = fields.get("instance_id", "").strip() or "uploaded-instance"
+    date = fields.get("date", "").strip() or ""
+    prefer_cpsat = _form_bool(fields.get("prefer_cpsat"), default=True)
+    form_overrides = _parse_json_text(fields.get("config_overrides_json", "") or "", default={})
+    force_request = _form_bool(fields.get("force_request"), default=False)
+    use_data_agent = _form_bool(fields.get("use_data_agent"), default=False)
+    raw_data_text = fields.get("raw_data_text", "").strip()
     agent_config = DataIngestionAgentConfig.from_values(
-        provider=_form_text(form, "data_agent_provider"),
-        api_key=_form_text(form, "data_agent_api_key"),
-        base_url=_form_text(form, "data_agent_base_url"),
-        model=_form_text(form, "data_agent_model"),
-        timeout_seconds=_form_text(form, "data_agent_timeout_seconds") or None,
+        provider=fields.get("data_agent_provider", ""),
+        api_key=fields.get("data_agent_api_key", ""),
+        base_url=fields.get("data_agent_base_url", ""),
+        model=fields.get("data_agent_model", ""),
+        timeout_seconds=fields.get("data_agent_timeout_seconds", "") or None,
     )
 
     uploaded_payload: Optional[Dict[str, Any]] = None
@@ -286,14 +347,9 @@ async def _payload_from_multipart_form(form: Any) -> tuple[Dict[str, Any], Dict[
     data_agent_uploads: list[tuple[str, bytes]] = []
     uploaded_files: Dict[str, bytes] = {}
     uploaded_names: list[str] = []
-    for field_name, value in _form_items(form):
-        if not _is_upload_file(value):
+    for field_name, filename, content in file_parts:
+        if not filename:
             continue
-        raw_name = str(getattr(value, "filename", "") or "")
-        if not raw_name:
-            continue
-        content = await value.read()
-        filename = Path(raw_name).name
         filename_key = filename.lower()
         field_key = str(field_name).lower()
         suffix = Path(filename_key).suffix
@@ -311,8 +367,11 @@ async def _payload_from_multipart_form(form: Any) -> tuple[Dict[str, Any], Dict[
         canonical = CSV_UPLOAD_ALIASES.get(field_key) or CSV_UPLOAD_ALIASES.get(filename_key)
         if canonical:
             uploaded_files[canonical] = content
+    progress("prepare", "done", f"{len(uploaded_names)} 个文件")
 
     if uploaded_payload is not None:
+        progress("router", "done", "payload_json")
+        progress("align", "done", "跳过")
         payload = dict(uploaded_payload)
         if force_request or not payload.get("request"):
             payload["request"] = request_text
@@ -321,6 +380,9 @@ async def _payload_from_multipart_form(form: Any) -> tuple[Dict[str, Any], Dict[
         return payload, {"source": "payload_json", "files": uploaded_names}
 
     if data_agent_uploads:
+        route = _route_file_batch(data_agent_uploads)
+        progress("router", "done", route.kind)
+        progress("align", "active", "LLM 对齐中" if route.kind == "llm_required" else "本地适配中")
         payload, agent_meta = DataIngestionAgent(agent_config).build_payload_from_files(
             data_agent_uploads,
             request_text,
@@ -329,6 +391,7 @@ async def _payload_from_multipart_form(form: Any) -> tuple[Dict[str, Any], Dict[
             prefer_cpsat=prefer_cpsat,
             config_overrides=form_overrides,
         )
+        progress("align", "done", str(agent_meta.get("mode", "完成")))
         return payload, {
             "source": _data_agent_upload_source(data_agent_uploads),
             "files": [name for name, _ in data_agent_uploads],
@@ -337,6 +400,8 @@ async def _payload_from_multipart_form(form: Any) -> tuple[Dict[str, Any], Dict[
 
     if uploaded_workbook is not None:
         filename, content = uploaded_workbook
+        progress("router", "done", "workbook")
+        progress("align", "active", "Agent 适配中" if use_data_agent else "标准工作簿")
         with tempfile.TemporaryDirectory(prefix="shorthaul-workbook-upload-") as tmp_dir:
             workbook_path = Path(tmp_dir) / filename
             workbook_path.write_bytes(content)
@@ -349,6 +414,7 @@ async def _payload_from_multipart_form(form: Any) -> tuple[Dict[str, Any], Dict[
                     prefer_cpsat=prefer_cpsat,
                     config_overrides=form_overrides,
                 )
+                progress("align", "done", str(agent_meta.get("mode", "完成")))
                 return payload, {"source": "data_agent_workbook", "files": [filename], "data_agent": agent_meta}
             payload = build_payload_from_workbook(
                 workbook_path,
@@ -358,9 +424,12 @@ async def _payload_from_multipart_form(form: Any) -> tuple[Dict[str, Any], Dict[
                 prefer_cpsat=prefer_cpsat,
                 config_overrides=form_overrides,
             )
+        progress("align", "done", "标准工作簿")
         return payload, {"source": "workbook_upload", "files": [filename]}
 
     if use_data_agent and raw_data_text:
+        progress("router", "done", "text")
+        progress("align", "active", "文本对齐中")
         payload, agent_meta = DataIngestionAgent(agent_config).build_payload_from_text(
             raw_data_text,
             request_text,
@@ -369,12 +438,15 @@ async def _payload_from_multipart_form(form: Any) -> tuple[Dict[str, Any], Dict[
             prefer_cpsat=prefer_cpsat,
             config_overrides=form_overrides,
         )
+        progress("align", "done", str(agent_meta.get("mode", "完成")))
         return payload, {"source": "data_agent_text", "files": uploaded_names, "data_agent": agent_meta}
 
     missing = [name for name in ("fleets.csv", "routes.csv", "forecast.csv") if name not in uploaded_files]
     if missing:
         raise ValueError(f"Missing required upload files: {', '.join(missing)}")
 
+    progress("router", "done", "csv_bundle")
+    progress("align", "done", "跳过")
     with tempfile.TemporaryDirectory(prefix="shorthaul-upload-") as tmp_dir:
         tmp_path = Path(tmp_dir)
         for filename, content in uploaded_files.items():
@@ -441,6 +513,108 @@ def _data_agent_upload_source(files: list[tuple[str, bytes]]) -> str:
     return "data_agent_text"
 
 
+def _create_upload_job() -> str:
+    job_id = uuid.uuid4().hex
+    now = time.time()
+    job = {
+        "job_id": job_id,
+        "status": "queued",
+        "stage": "prepare",
+        "message": "等待处理",
+        "created_at": now,
+        "updated_at": now,
+        "stages": {
+            stage: {"state": "pending", "label": "等待中"}
+            for stage in UPLOAD_JOB_STAGES
+        },
+        "result": None,
+        "error": "",
+    }
+    with UPLOAD_JOBS_LOCK:
+        UPLOAD_JOBS[job_id] = job
+    return job_id
+
+
+def _get_upload_job(job_id: str) -> Optional[dict[str, Any]]:
+    with UPLOAD_JOBS_LOCK:
+        job = UPLOAD_JOBS.get(job_id)
+        return json.loads(json.dumps(job, ensure_ascii=False)) if job is not None else None
+
+
+def _set_upload_job_stage(job_id: str, stage: str, state: str, label: str) -> None:
+    with UPLOAD_JOBS_LOCK:
+        job = UPLOAD_JOBS.get(job_id)
+        if job is None:
+            return
+        job["status"] = "running"
+        job["stage"] = stage
+        job["message"] = label
+        job["updated_at"] = time.time()
+        if stage in job["stages"]:
+            job["stages"][stage] = {"state": state, "label": label}
+
+
+def _finish_upload_job(job_id: str, result: dict[str, Any]) -> None:
+    with UPLOAD_JOBS_LOCK:
+        job = UPLOAD_JOBS.get(job_id)
+        if job is None:
+            return
+        job["status"] = "completed"
+        job["stage"] = "render"
+        job["message"] = "完成"
+        job["updated_at"] = time.time()
+        job["result"] = result
+        job["stages"]["render"] = {"state": "done", "label": "完成"}
+
+
+def _fail_upload_job(job_id: str, stage: str, exc: Exception) -> None:
+    with UPLOAD_JOBS_LOCK:
+        job = UPLOAD_JOBS.get(job_id)
+        if job is None:
+            return
+        label = str(exc)
+        job["status"] = "failed"
+        job["stage"] = stage if stage in UPLOAD_JOB_STAGES else "align"
+        job["message"] = label
+        job["updated_at"] = time.time()
+        job["error"] = label
+        if job["stage"] in job["stages"]:
+            job["stages"][job["stage"]] = {"state": "error", "label": "失败"}
+
+
+def _run_upload_job(job_id: str, fields: dict[str, str], file_parts: list[tuple[str, str, bytes]]) -> None:
+    current_stage = "prepare"
+
+    def progress(stage: str, state: str, label: str) -> None:
+        nonlocal current_stage
+        current_stage = stage
+        _set_upload_job_stage(job_id, stage, state, label)
+
+    try:
+        payload, upload_meta = _payload_from_multipart_parts(fields, file_parts, progress=progress)
+        progress("validate", "active", "校验实例")
+        instance = Instance.from_dict(payload["instance"])
+        overrides = payload.get("config_overrides", {})
+        config = ProblemConfig(prefer_cpsat=bool(payload.get("prefer_cpsat", True)))
+        validation = validate_instance(instance, config.merged(overrides))
+        if validation.errors:
+            raise ValueError("; ".join(validation.errors))
+        progress("validate", "done", "通过")
+        progress("solve", "active", "求解中")
+        result = (
+            DispatchOrchestrator(config, explicit_overrides=overrides)
+            .run(str(payload.get("request", "")), instance)
+            .to_dict()
+        )
+        result["upload"] = upload_meta
+        solver = str(result.get("solution", {}).get("solver", "完成"))
+        progress("solve", "done", solver)
+        progress("render", "active", "准备结果")
+        _finish_upload_job(job_id, result)
+    except Exception as exc:  # noqa: BLE001 - job status must capture user-visible failures.
+        _fail_upload_job(job_id, current_stage, exc)
+
+
 def _export_result_archive(result: Dict[str, Any], selected_files: list[str]) -> bytes:
     allowed = set(selected_files or [])
     solution = result.get("solution", {}) if isinstance(result, dict) else {}
@@ -478,18 +652,19 @@ def _assignments_csv(assignments: Any) -> str:
         "use_container",
         "is_external",
     ]
-    rows = [",".join(headers)]
+    buffer = StringIO()
+    writer = csv.writer(buffer, lineterminator="\r\n")
+    writer.writerow(headers)
     if not isinstance(assignments, list):
-        return "\n".join(rows) + "\n"
+        return "\ufeff" + buffer.getvalue()
     for item in assignments:
         if not isinstance(item, dict):
             continue
-        values = []
+        row = []
         for key in headers:
             value = item.get(key, "")
             if isinstance(value, list):
                 value = "|".join(str(part) for part in value)
-            text = str(value).replace('"', '""')
-            values.append(f'"{text}"' if any(ch in text for ch in ',\n"') else text)
-        rows.append(",".join(values))
-    return "\n".join(rows) + "\n"
+            row.append(str(value))
+        writer.writerow(row)
+    return "\ufeff" + buffer.getvalue()

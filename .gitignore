@@ -21,5 +21,6 @@ outputs_wandb*/
 wandb/
 wandb_tmp/
 *.wandb
+uvicorn*.log
 .worktrees/
 .env

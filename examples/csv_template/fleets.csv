@@ -1,0 +1,3 @@
+id,vehicle_count,fixed_cost,variable_cost_per_trip,normal_load_minutes,normal_unload_minutes,container_load_minutes,container_unload_minutes
+Fleet-A,3,520,80,45,45,20,20
+Fleet-B,2,480,70,45,45,20,20

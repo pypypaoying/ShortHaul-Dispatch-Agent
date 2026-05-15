@@ -88,6 +88,47 @@ http://127.0.0.1:8000/
 6. 查看成本、自有车任务数、外部承运数、装载率等 KPI。
 7. 查看调度甘特图和完整 JSON 响应。
 
+## 外部数据接入
+
+外部使用者有两条标准接入路径。
+
+第一种是直接构造 `/schedule` JSON payload，适合服务端系统集成。payload 的核心结构是：
+
+- `request`：自然语言调度需求。
+- `instance.fleets`：车队、自有车数量、成本和装卸时间。
+- `instance.routes`：线路、波次、最晚发运时间、行驶时间和成本。
+- `instance.forecast`：按线路和时间片组织的预测货量。
+- `config_overrides`：容量、容器、串点、外部承运和目标权重。
+
+第二种是准备 CSV 文件，再用 CLI 转成 API payload，适合从 Excel、TMS 或数据库导出数据：
+
+```powershell
+$env:PYTHONPATH="src"
+python -m shorthaul_agent.cli build-payload --csv-dir examples/csv_template --request examples/external_request.txt --output outputs/schedule_payload.json
+```
+
+CSV 目录至少包含：
+
+- `fleets.csv`
+- `routes.csv`
+- `forecast.csv`
+
+可选：
+
+- `milk_run_pairs.csv`
+- `config_overrides.json`
+
+运行服务后也可以读取机器可解析的接口说明：
+
+```http
+GET /schema
+GET /templates
+POST /validate-instance
+POST /schedule/from-csv-dir
+```
+
+完整字段说明见 [输入契约文档](docs/input_contract.md)。
+
 ## REST API
 
 服务启动后调用：

@@ -1,0 +1,14 @@
+{
+  "vehicle_capacity": 1000,
+  "container_capacity": 800,
+  "max_stops": 3,
+  "allow_container": true,
+  "allow_external": true,
+  "tail_cover_strategy": "cost_aware",
+  "tail_candidate_strategy": "exhaustive",
+  "objective_weights": {
+    "cost": 1.0,
+    "turnover": 0.5,
+    "fill_rate": 0.2
+  }
+}

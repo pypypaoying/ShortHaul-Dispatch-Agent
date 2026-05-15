@@ -280,6 +280,20 @@ DASHBOARD_HTML = r"""<!doctype html>
       line-height: 1.5;
     }
     .hint { color: var(--muted); font-size: 12px; margin-top: 8px; }
+    .hint-list {
+      margin: 0 0 10px 18px;
+      padding: 0;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.65;
+    }
+    .code-sample {
+      white-space: pre-wrap;
+      word-break: break-word;
+      max-height: none;
+      font-size: 12px;
+      margin-top: 8px;
+    }
     @media (max-width: 980px) {
       main { grid-template-columns: 1fr; }
       .metrics { grid-template-columns: repeat(2, minmax(130px, 1fr)); }
@@ -304,6 +318,7 @@ DASHBOARD_HTML = r"""<!doctype html>
         <div class="body">
           <div class="toolbar">
             <button id="loadDemo" data-i18n="loadSample">加载示例场景</button>
+            <button id="validateData" data-i18n="validateData">校验当前数据</button>
             <button id="run" class="primary" data-i18n="runOptimization">运行优化</button>
           </div>
           <div style="margin-top:12px">
@@ -344,6 +359,18 @@ DASHBOARD_HTML = r"""<!doctype html>
           <textarea id="instance" class="json-editor"></textarea>
         </div>
       </section>
+      <section>
+        <h2 data-i18n="onboardingTitle">接入自己的数据</h2>
+        <div class="body">
+          <ol class="hint-list">
+            <li data-i18n="onboardingStep1">准备 fleets.csv、routes.csv、forecast.csv，可选 milk_run_pairs.csv。</li>
+            <li data-i18n="onboardingStep2">运行 build-payload 命令生成可提交给 /schedule 的 JSON。</li>
+            <li data-i18n="onboardingStep3">将生成的 instance 粘贴到上方，或直接从外部系统 POST 到 /schedule。</li>
+          </ol>
+          <pre class="code-sample">python -m shorthaul_agent.cli build-payload --csv-dir examples/csv_template --request examples/external_request.txt --output outputs/schedule_payload.json</pre>
+          <div class="hint" data-i18n="onboardingLinks">接口文档：GET /schema；CSV 模板：GET /templates；本地 CSV 求解：POST /schedule/from-csv-dir。</div>
+        </div>
+      </section>
     </div>
     <div class="right">
       <section>
@@ -377,6 +404,7 @@ DASHBOARD_HTML = r"""<!doctype html>
         tagline: "自然语言约束 + CP-SAT 调度器 + 可视化方案",
         scenarioTitle: "场景设置",
         loadSample: "加载示例场景",
+        validateData: "校验当前数据",
         runOptimization: "运行优化",
         requestLabel: "调度需求",
         scenarioHint: "可替换下方 JSON 中的线路、车队和预测货量，用于同类调度问题。",
@@ -400,8 +428,16 @@ DASHBOARD_HTML = r"""<!doctype html>
         kpiTitle: "方案指标",
         ganttTitle: "调度甘特图",
         rawTitle: "原始结果",
+        onboardingTitle: "接入自己的数据",
+        onboardingStep1: "准备 fleets.csv、routes.csv、forecast.csv，可选 milk_run_pairs.csv。",
+        onboardingStep2: "运行 build-payload 命令生成可提交给 /schedule 的 JSON。",
+        onboardingStep3: "将生成的 instance 粘贴到上方，或直接从外部系统 POST 到 /schedule。",
+        onboardingLinks: "接口文档：GET /schema；CSV 模板：GET /templates；本地 CSV 求解：POST /schedule/from-csv-dir。",
         statusInitial: "加载示例场景后即可运行调度器。",
         statusLoaded: "示例场景已加载。可修改约束或目标权重后运行优化。",
+        statusValidating: "正在校验数据...",
+        statusValid: "数据校验通过",
+        statusInvalid: "数据校验未通过",
         statusSolving: "正在求解...",
         statusSolved: "求解完成",
         statusFailed: "运行失败",
@@ -418,6 +454,7 @@ DASHBOARD_HTML = r"""<!doctype html>
         tagline: "LLM-ready constraints + CP-SAT scheduler + visual dispatch plan",
         scenarioTitle: "Scenario",
         loadSample: "Load sample scenario",
+        validateData: "Validate data",
         runOptimization: "Run optimization",
         requestLabel: "Scheduling request",
         scenarioHint: "Replace the instance JSON with your own routes, fleets, and forecast buckets for similar dispatch problems.",
@@ -441,8 +478,16 @@ DASHBOARD_HTML = r"""<!doctype html>
         kpiTitle: "Solution KPIs",
         ganttTitle: "Dispatch Gantt",
         rawTitle: "Raw solution",
+        onboardingTitle: "Use your own data",
+        onboardingStep1: "Prepare fleets.csv, routes.csv, forecast.csv, and optional milk_run_pairs.csv.",
+        onboardingStep2: "Run build-payload to generate a JSON payload for /schedule.",
+        onboardingStep3: "Paste the generated instance above, or POST the payload from your external system.",
+        onboardingLinks: "Contract: GET /schema; templates: GET /templates; server-local CSV solve: POST /schedule/from-csv-dir.",
         statusInitial: "Load the sample scenario and run the scheduler.",
         statusLoaded: "Sample scenario loaded. Change constraints or objective weights, then run optimization.",
+        statusValidating: "Validating data...",
+        statusValid: "Data validation passed",
+        statusInvalid: "Data validation failed",
         statusSolving: "Solving...",
         statusSolved: "Solved",
         statusFailed: "Run failed",
@@ -569,6 +614,34 @@ DASHBOARD_HTML = r"""<!doctype html>
       }
     }
 
+    async function validateCurrentData() {
+      $("validateData").disabled = true;
+      setStatusKey("statusValidating");
+      try {
+        const payload = {
+          request: $("request").value || "validate instance",
+          instance: JSON.parse($("instance").value),
+          prefer_cpsat: $("preferCpsat").checked,
+          config_overrides: configOverrides()
+        };
+        const response = await fetch("/validate-instance", {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify(payload)
+        });
+        const report = await response.json();
+        if (!response.ok || report.status !== "ok") {
+          throw new Error((report.errors || []).join("; ") || JSON.stringify(report));
+        }
+        const warningText = (report.warnings || []).slice(0, 3).join("; ");
+        setStatusKey("statusValid", false, warningText);
+      } catch (error) {
+        setStatusKey("statusInvalid", true, error.message);
+      } finally {
+        $("validateData").disabled = false;
+      }
+    }
+
     function renderSolution(result) {
       lastResult = result;
       const solution = result.solution || {};
@@ -643,6 +716,7 @@ DASHBOARD_HTML = r"""<!doctype html>
     }
 
     $("loadDemo").addEventListener("click", loadDemo);
+    $("validateData").addEventListener("click", validateCurrentData);
     $("run").addEventListener("click", runSchedule);
     $("language").addEventListener("change", (event) => {
       currentLang = event.target.value;

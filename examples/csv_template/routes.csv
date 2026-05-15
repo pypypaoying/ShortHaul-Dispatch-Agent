@@ -1,0 +1,4 @@
+id,origin,destination,wave,latest_dispatch_minute,travel_minutes,fleet_id,variable_cost,external_cost,external_cost_multiplier
+Site-A - Stop-01 - 0600,Site-A,Stop-01,0600,1800,35,Fleet-A,150,,1.35
+Site-A - Stop-02 - 0600,Site-A,Stop-02,0600,1800,25,Fleet-A,120,,1.35
+Site-B - Stop-03 - 1400,Site-B,Stop-03,1400,2280,28,Fleet-B,110,,1.35

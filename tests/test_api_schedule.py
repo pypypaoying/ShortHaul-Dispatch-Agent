@@ -38,3 +38,16 @@ def test_dashboard_defaults_to_chinese_and_has_language_selector():
     assert response.status_code == 200
     assert "加载示例场景" in response.text
     assert 'id="language"' in response.text
+
+
+def test_api_exposes_external_data_contract():
+    app = create_app()
+    client = TestClient(app)
+
+    schema_response = client.get("/schema")
+    template_response = client.get("/templates")
+
+    assert schema_response.status_code == 200
+    assert "routes.csv" in schema_response.json()["csv_schemas"]
+    assert template_response.status_code == 200
+    assert "fleets.csv" in template_response.json()

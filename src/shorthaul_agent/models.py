@@ -49,6 +49,12 @@ class ProblemConfig:
             data["objective_weights"] = ObjectiveWeights(**data["objective_weights"])
         if isinstance(data.get("cpsat_search_seeds"), list):
             data["cpsat_search_seeds"] = tuple(int(item) for item in data["cpsat_search_seeds"])
+        if isinstance(data.get("milk_run_pairs"), list):
+            data["milk_run_pairs"] = {
+                tuple(sorted((str(left), str(right))))
+                for left, right in data["milk_run_pairs"]
+                if left and right
+            }
         return ProblemConfig(**data)
 
 

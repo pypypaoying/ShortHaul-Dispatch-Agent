@@ -6,7 +6,9 @@ from typing import Any, Dict
 
 from shorthaul_agent import DispatchOrchestrator, ProblemConfig
 from shorthaul_agent.experiment import load_experiment_config, run_experiment
+from shorthaul_agent.external_io import CSV_TEMPLATES, build_payload_from_csv_dir, schema_payload
 from shorthaul_agent.models import Instance
+from shorthaul_agent.validation import validate_instance
 from shorthaul_agent.web_ui import demo_payload, render_dashboard_html
 
 
@@ -29,6 +31,14 @@ def create_app():
         output_dir: str = "outputs"
         prefer_cpsat: bool = True
 
+    class CsvScheduleRequest(BaseModel):
+        data_dir: str = Field(..., description="Server-local folder containing fleets.csv, routes.csv, and forecast.csv.")
+        request: str = Field(..., description="Natural-language dispatch request.")
+        instance_id: str = "external-instance"
+        date: str = ""
+        prefer_cpsat: bool = True
+        config_overrides: Dict[str, Any] = Field(default_factory=dict)
+
     app = FastAPI(
         title="Short-haul Dispatch Agent",
         version="0.1.0",
@@ -46,6 +56,14 @@ def create_app():
     @app.get("/demo")
     def demo() -> Dict[str, Any]:
         return demo_payload()
+
+    @app.get("/schema")
+    def schema() -> Dict[str, Any]:
+        return schema_payload()
+
+    @app.get("/templates")
+    def templates() -> Dict[str, str]:
+        return CSV_TEMPLATES
 
     @app.get("/experiments")
     def experiments() -> Dict[str, Any]:
@@ -88,11 +106,32 @@ def create_app():
             "audit_sections": list(audit.keys()),
         }
 
+    @app.post("/validate-instance")
+    def validate_instance_payload(payload: ScheduleRequest = Body(...)) -> Dict[str, Any]:
+        instance = Instance.from_dict(payload.instance)
+        config = ProblemConfig(prefer_cpsat=payload.prefer_cpsat).merged(payload.config_overrides)
+        report = validate_instance(instance, config)
+        return {"status": "ok" if report.is_ok else "error", "errors": report.errors, "warnings": report.warnings}
+
     @app.post("/schedule")
     def schedule(payload: ScheduleRequest = Body(...)) -> Dict[str, Any]:
         instance = Instance.from_dict(payload.instance)
         config = ProblemConfig(prefer_cpsat=payload.prefer_cpsat).merged(payload.config_overrides)
         return DispatchOrchestrator(config).run(payload.request, instance).to_dict()
+
+    @app.post("/schedule/from-csv-dir")
+    def schedule_from_csv_dir(payload: CsvScheduleRequest = Body(...)) -> Dict[str, Any]:
+        schedule_payload = build_payload_from_csv_dir(
+            payload.data_dir,
+            payload.request,
+            instance_id=payload.instance_id,
+            date=payload.date,
+            prefer_cpsat=payload.prefer_cpsat,
+            config_overrides=payload.config_overrides,
+        )
+        instance = Instance.from_dict(schedule_payload["instance"])
+        config = ProblemConfig(prefer_cpsat=schedule_payload["prefer_cpsat"]).merged(schedule_payload["config_overrides"])
+        return DispatchOrchestrator(config).run(schedule_payload["request"], instance).to_dict()
 
     @app.post("/experiments/d-problem")
     def run_d_problem(payload: ExperimentRequest = Body(...)) -> Dict[str, Any]:

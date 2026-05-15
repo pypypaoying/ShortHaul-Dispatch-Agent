@@ -135,7 +135,7 @@ def discover_candidates(providers_json: str = "") -> list[ProviderCandidate]:
             "base_url_env": "DEEPSEEK_BASE_URL",
             "model_env": "DEEPSEEK_MODEL",
             "base_url": "https://api.deepseek.com/v1",
-            "model": "deepseek-chat",
+            "model": "deepseek-v4-flash",
         },
         {
             "name": "Qwen / DashScope",

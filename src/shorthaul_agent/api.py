@@ -1,7 +1,5 @@
 """Optional FastAPI service for the scheduling agent."""
 
-from __future__ import annotations
-
 import json
 from pathlib import Path
 from typing import Any, Dict
@@ -14,7 +12,7 @@ from shorthaul_agent.web_ui import demo_payload, render_dashboard_html
 
 def create_app():
     try:
-        from fastapi import FastAPI
+        from fastapi import Body, FastAPI
         from fastapi.responses import HTMLResponse
         from pydantic import BaseModel, Field
     except ImportError as exc:
@@ -76,7 +74,7 @@ def create_app():
         return {"path": str(path), "content": path.read_text(encoding="utf-8")}
 
     @app.post("/validate")
-    def validate(payload: ExperimentRequest) -> Dict[str, Any]:
+    def validate(payload: ExperimentRequest = Body(...)) -> Dict[str, Any]:
         summary_path = Path(payload.output_dir) / "experiment_summary.json"
         audit_path = Path(payload.output_dir) / "constraint_audit.json"
         if not summary_path.exists() or not audit_path.exists():
@@ -91,13 +89,13 @@ def create_app():
         }
 
     @app.post("/schedule")
-    def schedule(payload: ScheduleRequest) -> Dict[str, Any]:
+    def schedule(payload: ScheduleRequest = Body(...)) -> Dict[str, Any]:
         instance = Instance.from_dict(payload.instance)
         config = ProblemConfig(prefer_cpsat=payload.prefer_cpsat).merged(payload.config_overrides)
         return DispatchOrchestrator(config).run(payload.request, instance).to_dict()
 
     @app.post("/experiments/d-problem")
-    def run_d_problem(payload: ExperimentRequest) -> Dict[str, Any]:
+    def run_d_problem(payload: ExperimentRequest = Body(...)) -> Dict[str, Any]:
         return run_experiment(Path(payload.data_dir), Path(payload.output_dir), prefer_cpsat=payload.prefer_cpsat)
 
     @app.post("/experiments/from-config")

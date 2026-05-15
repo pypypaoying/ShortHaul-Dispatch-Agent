@@ -105,10 +105,17 @@ DEMO_INSTANCE: Dict[str, Any] = {
     ],
 }
 
-DEMO_REQUEST = (
+DEMO_REQUEST_ZH = (
+    "请为 2024-12-16 的短途运输任务生成调度方案。目标是降低总成本、提升自有车周转率，"
+    "允许使用容器，并重点关注 Site-3 - Stop-83 线路。"
+)
+
+DEMO_REQUEST_EN = (
     "Schedule the 2024-12-16 short-haul dispatch plan. Minimize total cost, "
     "increase owned-vehicle turnover, allow containers, and focus on Site-3 - Stop-83 routes."
 )
+
+DEMO_REQUEST = DEMO_REQUEST_ZH
 
 DEMO_CONFIG_OVERRIDES: Dict[str, Any] = {
     "vehicle_capacity": 1000,
@@ -125,6 +132,7 @@ DEMO_CONFIG_OVERRIDES: Dict[str, Any] = {
 def demo_payload() -> Dict[str, Any]:
     return {
         "request": DEMO_REQUEST,
+        "request_i18n": {"zh": DEMO_REQUEST_ZH, "en": DEMO_REQUEST_EN},
         "instance": deepcopy(DEMO_INSTANCE),
         "prefer_cpsat": True,
         "config_overrides": deepcopy(DEMO_CONFIG_OVERRIDES),
@@ -175,6 +183,15 @@ DASHBOARD_HTML = r"""<!doctype html>
     }
     header h1 { margin: 0; font-size: 18px; font-weight: 680; }
     header .meta { color: #cbd5e1; font-size: 13px; }
+    .header-actions { display: flex; align-items: center; gap: 14px; }
+    .language-select {
+      width: auto;
+      min-width: 112px;
+      border-color: #334155;
+      background: #1f2937;
+      color: #fff;
+      padding: 6px 8px;
+    }
     main {
       display: grid;
       grid-template-columns: 420px minmax(0, 1fr);
@@ -272,51 +289,57 @@ DASHBOARD_HTML = r"""<!doctype html>
 <body>
   <header>
     <h1>ShortHaul Dispatch Agent</h1>
-    <div class="meta">LLM-ready constraints + CP-SAT scheduler + visual dispatch plan</div>
+    <div class="header-actions">
+      <div class="meta" data-i18n="tagline">自然语言约束 + CP-SAT 调度器 + 可视化方案</div>
+      <select id="language" class="language-select" aria-label="Language">
+        <option value="zh">中文</option>
+        <option value="en">English</option>
+      </select>
+    </div>
   </header>
   <main>
     <div class="left">
       <section>
-        <h2>Scenario</h2>
+        <h2 data-i18n="scenarioTitle">场景设置</h2>
         <div class="body">
           <div class="toolbar">
-            <button id="loadDemo">Load sample scenario</button>
-            <button id="run" class="primary">Run optimization</button>
+            <button id="loadDemo" data-i18n="loadSample">加载示例场景</button>
+            <button id="run" class="primary" data-i18n="runOptimization">运行优化</button>
           </div>
           <div style="margin-top:12px">
-            <label for="request">Scheduling request</label>
+            <label for="request" data-i18n="requestLabel">调度需求</label>
             <textarea id="request"></textarea>
           </div>
-          <div class="hint">Replace the instance JSON with your own routes, fleets, and forecast buckets for similar dispatch problems.</div>
+          <div class="hint" data-i18n="scenarioHint">可替换下方 JSON 中的线路、车队和预测货量，用于同类调度问题。</div>
         </div>
       </section>
       <section>
-        <h2>Constraints and objective</h2>
+        <h2 data-i18n="constraintsTitle">约束与优化目标</h2>
         <div class="body">
           <div class="grid-2">
-            <div><label>Vehicle capacity</label><input id="vehicleCapacity" type="number" value="1000" /></div>
-            <div><label>Container capacity</label><input id="containerCapacity" type="number" value="800" /></div>
-            <div><label>Max milk-run stops</label><input id="maxStops" type="number" value="3" /></div>
-            <div><label>Tail strategy</label><select id="tailStrategy">
-              <option value="cost_aware">cost_aware</option>
-              <option value="duration_aware">duration_aware</option>
-              <option value="saving_aware">saving_aware</option>
-              <option value="fill_aware">fill_aware</option>
-              <option value="min_count">min_count</option>
+            <div><label data-i18n="vehicleCapacity">车辆容量</label><input id="vehicleCapacity" type="number" value="1000" /></div>
+            <div><label data-i18n="containerCapacity">容器容量</label><input id="containerCapacity" type="number" value="800" /></div>
+            <div><label data-i18n="maxStops">最大串点数</label><input id="maxStops" type="number" value="3" /></div>
+            <div><label data-i18n="tailStrategy">尾货策略</label><select id="tailStrategy">
+              <option value="cost_aware" data-i18n="strategyCost">成本优先</option>
+              <option value="duration_aware" data-i18n="strategyDuration">时长优先</option>
+              <option value="saving_aware" data-i18n="strategySaving">节省优先</option>
+              <option value="fill_aware" data-i18n="strategyFill">装载率优先</option>
+              <option value="min_count" data-i18n="strategyCount">任务数优先</option>
             </select></div>
-            <div class="toggle"><input id="allowContainer" type="checkbox" checked /><label for="allowContainer">Allow containers</label></div>
-            <div class="toggle"><input id="allowExternal" type="checkbox" checked /><label for="allowExternal">Allow external carrier</label></div>
+            <div class="toggle"><input id="allowContainer" type="checkbox" checked /><label for="allowContainer" data-i18n="allowContainer">允许使用容器</label></div>
+            <div class="toggle"><input id="allowExternal" type="checkbox" checked /><label for="allowExternal" data-i18n="allowExternal">允许外部承运</label></div>
           </div>
           <div style="margin-top:12px" class="grid-2">
-            <div><label>Cost weight</label><input id="costWeight" type="range" min="0" max="2" step="0.1" value="1" /></div>
-            <div><label>Turnover weight</label><input id="turnoverWeight" type="range" min="0" max="2" step="0.1" value="0.5" /></div>
-            <div><label>Fill-rate weight</label><input id="fillWeight" type="range" min="0" max="2" step="0.1" value="0.2" /></div>
-            <div class="toggle"><input id="preferCpsat" type="checkbox" checked /><label for="preferCpsat">Prefer CP-SAT</label></div>
+            <div><label data-i18n="costWeight">成本权重</label><input id="costWeight" type="range" min="0" max="2" step="0.1" value="1" /></div>
+            <div><label data-i18n="turnoverWeight">周转权重</label><input id="turnoverWeight" type="range" min="0" max="2" step="0.1" value="0.5" /></div>
+            <div><label data-i18n="fillWeight">装载率权重</label><input id="fillWeight" type="range" min="0" max="2" step="0.1" value="0.2" /></div>
+            <div class="toggle"><input id="preferCpsat" type="checkbox" checked /><label for="preferCpsat" data-i18n="preferCpsat">优先使用 CP-SAT</label></div>
           </div>
         </div>
       </section>
       <section>
-        <h2>Instance JSON</h2>
+        <h2 data-i18n="instanceTitle">场景 JSON</h2>
         <div class="body">
           <textarea id="instance" class="json-editor"></textarea>
         </div>
@@ -324,19 +347,19 @@ DASHBOARD_HTML = r"""<!doctype html>
     </div>
     <div class="right">
       <section>
-        <h2>Solution KPIs</h2>
+        <h2 data-i18n="kpiTitle">方案指标</h2>
         <div class="body">
           <div class="metrics" id="metrics"></div>
           <div class="pill-row" id="warnings" style="margin-top:12px"></div>
         </div>
-        <div id="status" class="status">Load the sample scenario and run the scheduler.</div>
+        <div id="status" class="status" data-status-key="statusInitial">加载示例场景后即可运行调度器。</div>
       </section>
       <section>
-        <h2>Dispatch Gantt</h2>
+        <h2 data-i18n="ganttTitle">调度甘特图</h2>
         <div class="chart-shell"><svg id="gantt" width="1080" height="420"></svg></div>
       </section>
       <section>
-        <h2>Raw solution</h2>
+        <h2 data-i18n="rawTitle">原始结果</h2>
         <div class="body"><pre id="raw">{}</pre></div>
       </section>
     </div>
@@ -344,16 +367,148 @@ DASHBOARD_HTML = r"""<!doctype html>
   <script>
     const $ = (id) => document.getElementById(id);
     const status = $("status");
+    let currentLang = "zh";
+    let lastDemoPayload = null;
+    let lastResult = null;
+    let statusSuffix = "";
 
-    function setStatus(text, isError = false) {
+    const i18n = {
+      zh: {
+        tagline: "自然语言约束 + CP-SAT 调度器 + 可视化方案",
+        scenarioTitle: "场景设置",
+        loadSample: "加载示例场景",
+        runOptimization: "运行优化",
+        requestLabel: "调度需求",
+        scenarioHint: "可替换下方 JSON 中的线路、车队和预测货量，用于同类调度问题。",
+        constraintsTitle: "约束与优化目标",
+        vehicleCapacity: "车辆容量",
+        containerCapacity: "容器容量",
+        maxStops: "最大串点数",
+        tailStrategy: "尾货策略",
+        strategyCost: "成本优先",
+        strategyDuration: "时长优先",
+        strategySaving: "节省优先",
+        strategyFill: "装载率优先",
+        strategyCount: "任务数优先",
+        allowContainer: "允许使用容器",
+        allowExternal: "允许外部承运",
+        costWeight: "成本权重",
+        turnoverWeight: "周转权重",
+        fillWeight: "装载率权重",
+        preferCpsat: "优先使用 CP-SAT",
+        instanceTitle: "场景 JSON",
+        kpiTitle: "方案指标",
+        ganttTitle: "调度甘特图",
+        rawTitle: "原始结果",
+        statusInitial: "加载示例场景后即可运行调度器。",
+        statusLoaded: "示例场景已加载。可修改约束或目标权重后运行优化。",
+        statusSolving: "正在求解...",
+        statusSolved: "求解完成",
+        statusFailed: "运行失败",
+        totalCost: "总成本",
+        ownTurnover: "自有车周转率",
+        externalTasks: "外部承运任务",
+        fillRate: "装载率",
+        tasks: "任务数",
+        owned: "自有车",
+        container: "容器",
+        external: "外部承运"
+      },
+      en: {
+        tagline: "LLM-ready constraints + CP-SAT scheduler + visual dispatch plan",
+        scenarioTitle: "Scenario",
+        loadSample: "Load sample scenario",
+        runOptimization: "Run optimization",
+        requestLabel: "Scheduling request",
+        scenarioHint: "Replace the instance JSON with your own routes, fleets, and forecast buckets for similar dispatch problems.",
+        constraintsTitle: "Constraints and objective",
+        vehicleCapacity: "Vehicle capacity",
+        containerCapacity: "Container capacity",
+        maxStops: "Max milk-run stops",
+        tailStrategy: "Tail strategy",
+        strategyCost: "cost_aware",
+        strategyDuration: "duration_aware",
+        strategySaving: "saving_aware",
+        strategyFill: "fill_aware",
+        strategyCount: "min_count",
+        allowContainer: "Allow containers",
+        allowExternal: "Allow external carrier",
+        costWeight: "Cost weight",
+        turnoverWeight: "Turnover weight",
+        fillWeight: "Fill-rate weight",
+        preferCpsat: "Prefer CP-SAT",
+        instanceTitle: "Instance JSON",
+        kpiTitle: "Solution KPIs",
+        ganttTitle: "Dispatch Gantt",
+        rawTitle: "Raw solution",
+        statusInitial: "Load the sample scenario and run the scheduler.",
+        statusLoaded: "Sample scenario loaded. Change constraints or objective weights, then run optimization.",
+        statusSolving: "Solving...",
+        statusSolved: "Solved",
+        statusFailed: "Run failed",
+        totalCost: "Total cost",
+        ownTurnover: "Own turnover",
+        externalTasks: "External tasks",
+        fillRate: "Fill rate",
+        tasks: "Tasks",
+        owned: "owned",
+        container: "container",
+        external: "external"
+      }
+    };
+
+    function t(key) {
+      return (i18n[currentLang] && i18n[currentLang][key]) || i18n.en[key] || key;
+    }
+
+    function applyLanguage() {
+      document.documentElement.lang = currentLang === "zh" ? "zh-CN" : "en";
+      document.querySelectorAll("[data-i18n]").forEach((node) => {
+        node.textContent = t(node.dataset.i18n);
+      });
+      const statusKey = status.dataset.statusKey || "statusInitial";
+      status.textContent = statusSuffix ? `${t(statusKey)}：${statusSuffix}` : t(statusKey);
+      if (lastDemoPayload) {
+        maybeUpdateSampleRequest();
+      }
+      if (lastResult) {
+        renderSolution(lastResult);
+      }
+    }
+
+    function setStatusKey(key, isError = false, suffix = "") {
+      status.dataset.statusKey = key;
+      statusSuffix = suffix;
+      status.textContent = statusSuffix ? `${t(key)}：${statusSuffix}` : t(key);
+      status.className = isError ? "status error" : "status";
+    }
+
+    function setStatusText(text, isError = false) {
+      status.dataset.statusKey = "";
+      statusSuffix = "";
       status.textContent = text;
       status.className = isError ? "status error" : "status";
+    }
+
+    function sampleRequestForLanguage(payload = lastDemoPayload) {
+      if (!payload) {
+        return "";
+      }
+      return (payload.request_i18n && payload.request_i18n[currentLang]) || payload.request || "";
+    }
+
+    function maybeUpdateSampleRequest() {
+      const translations = Object.values(lastDemoPayload.request_i18n || {});
+      if (!translations.length || translations.includes($("request").value.trim())) {
+        $("request").value = sampleRequestForLanguage();
+      }
     }
 
     async function loadDemo() {
       const response = await fetch("/demo");
       const payload = await response.json();
-      $("request").value = payload.request;
+      lastDemoPayload = payload;
+      $("request").value = sampleRequestForLanguage(payload);
       $("instance").value = JSON.stringify(payload.instance, null, 2);
       const cfg = payload.config_overrides || {};
       $("vehicleCapacity").value = cfg.vehicle_capacity || 1000;
@@ -367,7 +522,7 @@ DASHBOARD_HTML = r"""<!doctype html>
       $("costWeight").value = weights.cost || 1;
       $("turnoverWeight").value = weights.turnover || 0.5;
       $("fillWeight").value = weights.fill_rate || 0.2;
-      setStatus("Sample scenario loaded. Change constraints or objective weights, then run optimization.");
+      setStatusKey("statusLoaded");
     }
 
     function configOverrides() {
@@ -388,7 +543,7 @@ DASHBOARD_HTML = r"""<!doctype html>
 
     async function runSchedule() {
       $("run").disabled = true;
-      setStatus("Solving...");
+      setStatusKey("statusSolving");
       try {
         const payload = {
           request: $("request").value,
@@ -406,23 +561,24 @@ DASHBOARD_HTML = r"""<!doctype html>
           throw new Error(JSON.stringify(solution));
         }
         renderSolution(solution);
-        setStatus(`Solved with ${solution.solution.solver}: ${solution.solution.status}`);
+        setStatusKey("statusSolved", false, `${solution.solution.solver}: ${solution.solution.status}`);
       } catch (error) {
-        setStatus(`Run failed: ${error.message}`, true);
+        setStatusKey("statusFailed", true, error.message);
       } finally {
         $("run").disabled = false;
       }
     }
 
     function renderSolution(result) {
+      lastResult = result;
       const solution = result.solution || {};
       const k = solution.kpis || {};
       const metrics = [
-        ["Total cost", k.total_cost],
-        ["Own turnover", k.own_vehicle_turnover],
-        ["External tasks", k.external_task_count],
-        ["Fill rate", k.fill_rate],
-        ["Tasks", k.task_count]
+        [t("totalCost"), k.total_cost],
+        [t("ownTurnover"), k.own_vehicle_turnover],
+        [t("externalTasks"), k.external_task_count],
+        [t("fillRate"), k.fill_rate],
+        [t("tasks"), k.task_count]
       ];
       $("metrics").innerHTML = metrics.map(([label, value]) => {
         const display = typeof value === "number" ? (label.includes("rate") ? `${(value * 100).toFixed(1)}%` : value.toFixed(value % 1 ? 2 : 0)) : "-";
@@ -466,11 +622,11 @@ DASHBOARD_HTML = r"""<!doctype html>
           <text x="${x - 18}" y="18" font-size="11" fill="#667085">${timeLabel(minute)}</text>`);
       }
       const legend = `<rect x="14" y="${height - 28}" width="12" height="12" fill="var(--own)" rx="3" />
-        <text x="32" y="${height - 18}" font-size="12" fill="#667085">owned</text>
+        <text x="32" y="${height - 18}" font-size="12" fill="#667085">${t("owned")}</text>
         <rect x="92" y="${height - 28}" width="12" height="12" fill="var(--container)" rx="3" />
-        <text x="110" y="${height - 18}" font-size="12" fill="#667085">container</text>
+        <text x="110" y="${height - 18}" font-size="12" fill="#667085">${t("container")}</text>
         <rect x="194" y="${height - 28}" width="12" height="12" fill="var(--external)" rx="3" />
-        <text x="212" y="${height - 18}" font-size="12" fill="#667085">external</text>`;
+        <text x="212" y="${height - 18}" font-size="12" fill="#667085">${t("external")}</text>`;
       svg.innerHTML = `${ticks.join("")}${rows}${bars}${legend}`;
     }
 
@@ -488,6 +644,11 @@ DASHBOARD_HTML = r"""<!doctype html>
 
     $("loadDemo").addEventListener("click", loadDemo);
     $("run").addEventListener("click", runSchedule);
+    $("language").addEventListener("change", (event) => {
+      currentLang = event.target.value;
+      applyLanguage();
+    });
+    applyLanguage();
     loadDemo();
   </script>
 </body>

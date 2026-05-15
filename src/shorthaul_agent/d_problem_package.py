@@ -9,6 +9,7 @@ from typing import Any, Dict
 
 import pandas as pd
 
+from shorthaul_agent.external_io import write_workbook_from_payload
 from shorthaul_agent.experiment import (
     build_instance,
     build_milk_run_pairs,
@@ -117,11 +118,13 @@ def write_upload_package(
     csv_config.pop("milk_run_pairs", None)
     write_json(out / "config_overrides.json", csv_config)
     write_json(out / "payload.json", payload)
+    write_workbook_from_payload(payload, out / "shorthaul_dispatch_workbook.xlsx")
 
     manifest = {
         "format": "shorthaul-agent/v1",
         "files": [
             "payload.json",
+            "shorthaul_dispatch_workbook.xlsx",
             "request.txt",
             "fleets.csv",
             "routes.csv",
@@ -164,6 +167,7 @@ def render_package_readme(manifest: Dict[str, Any]) -> str:
             "## Contents",
             "",
             "- `payload.json`: complete request body for `POST /schedule` or UI upload.",
+            "- `shorthaul_dispatch_workbook.xlsx`: single-file workbook for the recommended UI upload path.",
             "- `fleets.csv`, `routes.csv`, `forecast.csv`: required CSV upload files.",
             "- `milk_run_pairs.csv`: optional milk-run compatibility graph.",
             "- `config_overrides.json`: capacity, strategy, solver, and objective settings.",
@@ -181,8 +185,9 @@ def render_package_readme(manifest: Dict[str, Any]) -> str:
             "## Run In Web UI",
             "",
             "1. Start the service and open `http://127.0.0.1:8000/`.",
-            "2. In the upload section, either select `payload.json`, or select the CSV files.",
+            "2. In the upload section, select `shorthaul_dispatch_workbook.xlsx`.",
             "3. Click Upload and run.",
+            "4. Use `payload.json` or the CSV files only for advanced API/debug workflows.",
             "",
             "## Run Through CLI/API",
             "",

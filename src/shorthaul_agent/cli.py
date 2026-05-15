@@ -10,7 +10,7 @@ from shorthaul_agent import DispatchOrchestrator, ProblemConfig
 from shorthaul_agent.baseline_comparison import compare_baselines
 from shorthaul_agent.d_problem_package import DEFAULT_UPLOAD_REQUEST, export_d_problem_upload_package
 from shorthaul_agent.experiment import run_experiment, run_task_generation_tuning
-from shorthaul_agent.external_io import build_payload_from_csv_dir
+from shorthaul_agent.external_io import build_payload_from_csv_dir, build_payload_from_workbook
 from shorthaul_agent.io import load_instance, write_json
 
 
@@ -107,9 +107,10 @@ def main() -> None:
         return
 
     if len(sys.argv) > 1 and sys.argv[1] == "build-payload":
-        parser = argparse.ArgumentParser(description="Build a /schedule API payload from external CSV files.")
+        parser = argparse.ArgumentParser(description="Build a /schedule API payload from an external workbook or CSV files.")
         parser.add_argument("command")
-        parser.add_argument("--csv-dir", required=True, help="Folder containing fleets.csv, routes.csv, forecast.csv, and optional milk_run_pairs.csv.")
+        parser.add_argument("--workbook", default=None, help="Excel workbook using the ShortHaul template.")
+        parser.add_argument("--csv-dir", default=None, help="Folder containing fleets.csv, routes.csv, forecast.csv, and optional milk_run_pairs.csv.")
         parser.add_argument("--request", required=True, help="Natural-language request text file.")
         parser.add_argument("--output", default="outputs/schedule_payload.json", help="Output JSON payload path.")
         parser.add_argument("--instance-id", default="external-instance", help="Instance id written into the payload.")
@@ -123,14 +124,26 @@ def main() -> None:
 
             overrides = json.loads(Path(args.config_overrides).read_text(encoding="utf-8"))
         request_text = Path(args.request).read_text(encoding="utf-8")
-        payload = build_payload_from_csv_dir(
-            args.csv_dir,
-            request_text,
-            instance_id=args.instance_id,
-            date=args.date,
-            prefer_cpsat=not args.no_cpsat,
-            config_overrides=overrides,
-        )
+        if args.workbook:
+            payload = build_payload_from_workbook(
+                args.workbook,
+                request_text,
+                instance_id=args.instance_id,
+                date=args.date,
+                prefer_cpsat=not args.no_cpsat,
+                config_overrides=overrides,
+            )
+        elif args.csv_dir:
+            payload = build_payload_from_csv_dir(
+                args.csv_dir,
+                request_text,
+                instance_id=args.instance_id,
+                date=args.date,
+                prefer_cpsat=not args.no_cpsat,
+                config_overrides=overrides,
+            )
+        else:
+            parser.error("Provide either --workbook or --csv-dir.")
         write_json(args.output, payload)
         print(f"Schedule API payload written to {args.output}")
         return

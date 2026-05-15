@@ -315,6 +315,68 @@ DASHBOARD_HTML = r"""<!doctype html>
       font-weight: 640;
       font-size: 12px;
     }
+    .guide-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 8px;
+      margin: 12px 0;
+    }
+    .guide-step {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fbfcfe;
+      padding: 10px;
+      min-height: 86px;
+    }
+    .guide-step strong { display: block; margin-bottom: 4px; }
+    .guide-step span { color: var(--muted); font-size: 12px; }
+    .template-summary {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+      margin-top: 10px;
+      overflow: hidden;
+    }
+    .template-summary strong {
+      display: block;
+      padding: 10px;
+      background: #fafbfc;
+      border-bottom: 1px solid var(--line);
+    }
+    .template-summary table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+    }
+    .template-summary th,
+    .template-summary td {
+      text-align: left;
+      vertical-align: top;
+      border-top: 1px solid #eef1f5;
+      padding: 8px;
+    }
+    .template-summary code {
+      background: #f1f5f9;
+      border-radius: 4px;
+      padding: 1px 4px;
+    }
+    .template-shot {
+      width: 100%;
+      max-height: 150px;
+      object-fit: cover;
+      object-position: top;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      margin-top: 10px;
+    }
+    details {
+      margin-top: 12px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fbfcfe;
+      padding: 10px;
+    }
+    summary { cursor: pointer; font-weight: 650; }
     .hint-list {
       margin: 0 0 10px 18px;
       padding: 0;
@@ -349,48 +411,19 @@ DASHBOARD_HTML = r"""<!doctype html>
   <main>
     <div class="left">
       <section>
-        <h2 data-i18n="scenarioTitle">场景设置</h2>
-        <div class="body">
-          <div class="toolbar">
-            <button id="loadDemo" data-i18n="loadSample">加载示例场景</button>
-            <button id="validateData" data-i18n="validateData">校验当前数据</button>
-            <button id="run" class="primary" data-i18n="runOptimization">运行优化</button>
-          </div>
-          <div style="margin-top:12px">
-            <label for="request" data-i18n="requestLabel">调度需求</label>
-            <textarea id="request"></textarea>
-          </div>
-          <div class="hint" data-i18n="scenarioHint">可替换下方 JSON 中的线路、车队和预测货量，用于同类调度问题。</div>
-        </div>
-      </section>
-      <section>
         <h2 data-i18n="uploadTitle">上传本地文件运行</h2>
         <div class="body">
-          <div class="hint" data-i18n="uploadIntro">支持直接上传完整 payload.json，或上传标准 CSV 文件组：fleets.csv、routes.csv、forecast.csv。上传后会调用同一套求解器并在右侧展示 KPI 与甘特图。</div>
+          <div class="hint" data-i18n="uploadIntro">推荐只上传一个 Excel 工作簿。把车队、线路、货量粘贴到模板中的 fleets、routes、demand 三张表，即可运行优化。</div>
+          <div class="guide-grid">
+            <div class="guide-step"><strong data-i18n="guideStep1Title">1 下载模板</strong><span data-i18n="guideStep1Body">用 Excel 打开模板，查看每张表的列名和样例。</span></div>
+            <div class="guide-step"><strong data-i18n="guideStep2Title">2 粘贴数据</strong><span data-i18n="guideStep2Body">从 TMS、Excel 或数据库导出后复制到三张必需表。</span></div>
+            <div class="guide-step"><strong data-i18n="guideStep3Title">3 上传运行</strong><span data-i18n="guideStep3Body">选择工作簿，系统自动转换为内部 JSON 并求解。</span></div>
+            <div class="guide-step"><strong data-i18n="guideStep4Title">4 查看结果</strong><span data-i18n="guideStep4Body">右侧展示 KPI、甘特图、外部承运和原始响应。</span></div>
+          </div>
           <div class="file-grid">
             <div class="file-row">
-              <label for="payloadFile" data-i18n="payloadFile">完整 payload.json（可选）</label>
-              <input id="payloadFile" type="file" accept=".json,application/json" />
-            </div>
-            <div class="file-row">
-              <label for="fleetsFile">fleets.csv</label>
-              <input id="fleetsFile" type="file" accept=".csv,text/csv" />
-            </div>
-            <div class="file-row">
-              <label for="routesFile">routes.csv</label>
-              <input id="routesFile" type="file" accept=".csv,text/csv" />
-            </div>
-            <div class="file-row">
-              <label for="forecastFile">forecast.csv</label>
-              <input id="forecastFile" type="file" accept=".csv,text/csv" />
-            </div>
-            <div class="file-row">
-              <label for="milkRunFile">milk_run_pairs.csv</label>
-              <input id="milkRunFile" type="file" accept=".csv,text/csv" />
-            </div>
-            <div class="file-row">
-              <label for="configFile">config_overrides.json</label>
-              <input id="configFile" type="file" accept=".json,application/json" />
+              <label for="workbookFile" data-i18n="workbookFile">调度数据工作簿 .xlsx</label>
+              <input id="workbookFile" type="file" accept=".xlsx,.xlsm,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" />
             </div>
           </div>
           <div class="grid-2" style="margin-top:12px">
@@ -401,11 +434,53 @@ DASHBOARD_HTML = r"""<!doctype html>
             <button id="runUpload" class="primary" data-i18n="runUpload">上传并运行</button>
             <button id="clearUpload" data-i18n="clearUpload">清空上传文件</button>
           </div>
-          <div class="hint" data-i18n="uploadDPackage">完整案例数据包可由 scripts/export_d_problem_upload_package.py 生成，生成后选择其中的 CSV 或 payload.json 即可运行。</div>
           <div class="link-row">
-            <a href="/schema" target="_blank" rel="noreferrer" data-i18n="schemaLink">查看输入契约</a>
-            <a href="/templates" target="_blank" rel="noreferrer" data-i18n="templateLink">查看 CSV 模板</a>
+            <a href="/templates/workbook.xlsx" data-i18n="downloadWorkbook">下载 Excel 模板</a>
+            <a href="/templates/view" target="_blank" rel="noreferrer" data-i18n="templateLink">查看模板格式</a>
+            <a href="/contract" target="_blank" rel="noreferrer" data-i18n="contractLink">查看接入教程</a>
           </div>
+          <div class="template-summary">
+            <strong data-i18n="templateQuickTitle">最小输入格式</strong>
+            <table>
+              <thead><tr><th data-i18n="templateSheet">工作表</th><th data-i18n="templateColumns">必需字段</th><th data-i18n="templateExample">示例</th></tr></thead>
+              <tbody>
+                <tr><td><code>fleets</code></td><td><code>fleet_id</code>, <code>owned_vehicles</code></td><td>Fleet-A, 3</td></tr>
+                <tr><td><code>routes</code></td><td><code>route_id</code>, <code>origin</code>, <code>destination</code>, <code>wave</code>, <code>latest_dispatch_time</code>, <code>travel_min</code>, <code>fleet_id</code></td><td>Site-A - Stop-01 - 0600</td></tr>
+                <tr><td><code>demand</code></td><td><code>route_id</code>, <code>volume</code>; <span data-i18n="optionalReady"><code>ready_time</code> 可选</span></td><td>Site-A - Stop-01 - 0600, 600</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <img class="template-shot" src="/assets/dispatch_ui_demo.png" alt="ShortHaul UI screenshot" />
+          <details>
+            <summary data-i18n="advancedUpload">高级：CSV / JSON 接入</summary>
+            <div class="hint" data-i18n="advancedUploadIntro">用于系统集成或自动化导出。普通用户优先使用上方单个 Excel 工作簿。</div>
+            <div class="file-grid">
+              <div class="file-row">
+                <label for="payloadFile" data-i18n="payloadFile">完整 payload.json（可选）</label>
+                <input id="payloadFile" type="file" accept=".json,application/json" />
+              </div>
+              <div class="file-row"><label for="fleetsFile">fleets.csv</label><input id="fleetsFile" type="file" accept=".csv,text/csv" /></div>
+              <div class="file-row"><label for="routesFile">routes.csv</label><input id="routesFile" type="file" accept=".csv,text/csv" /></div>
+              <div class="file-row"><label for="forecastFile">forecast.csv</label><input id="forecastFile" type="file" accept=".csv,text/csv" /></div>
+              <div class="file-row"><label for="milkRunFile">milk_run_pairs.csv</label><input id="milkRunFile" type="file" accept=".csv,text/csv" /></div>
+              <div class="file-row"><label for="configFile">config_overrides.json</label><input id="configFile" type="file" accept=".json,application/json" /></div>
+            </div>
+          </details>
+        </div>
+      </section>
+      <section>
+        <h2 data-i18n="scenarioTitle">示例场景与高级编辑</h2>
+        <div class="body">
+          <div class="toolbar">
+            <button id="loadDemo" data-i18n="loadSample">加载示例场景</button>
+            <button id="validateData" data-i18n="validateData">校验当前数据</button>
+            <button id="run" class="primary" data-i18n="runOptimization">运行当前 JSON</button>
+          </div>
+          <div style="margin-top:12px">
+            <label for="request" data-i18n="requestLabel">调度需求</label>
+            <textarea id="request"></textarea>
+          </div>
+          <div class="hint" data-i18n="scenarioHint">普通用户可直接上传 Excel；本区用于加载示例、调试 API payload 或做二次开发。</div>
         </div>
       </section>
       <section>
@@ -434,10 +509,13 @@ DASHBOARD_HTML = r"""<!doctype html>
         </div>
       </section>
       <section>
-        <h2 data-i18n="instanceTitle">场景 JSON</h2>
-        <div class="body">
-          <textarea id="instance" class="json-editor"></textarea>
-        </div>
+        <details open>
+          <summary data-i18n="instanceTitle">高级：内部 JSON</summary>
+          <div class="body">
+            <div class="hint" data-i18n="instanceHint">这是系统内部 payload 结构。外部业务人员通常不需要手写它，上传 Excel 后系统会自动转换。</div>
+            <textarea id="instance" class="json-editor"></textarea>
+          </div>
+        </details>
       </section>
       <section>
         <h2 data-i18n="onboardingTitle">接入自己的数据</h2>
@@ -447,7 +525,7 @@ DASHBOARD_HTML = r"""<!doctype html>
             <li data-i18n="onboardingStep2">运行 build-payload 命令生成可提交给 /schedule 的 JSON。</li>
             <li data-i18n="onboardingStep3">将生成的 instance 粘贴到上方，或直接从外部系统 POST 到 /schedule。</li>
           </ol>
-          <pre class="code-sample">python -m shorthaul_agent.cli build-payload --csv-dir examples/csv_template --request examples/external_request.txt --output outputs/schedule_payload.json</pre>
+          <pre class="code-sample">python -m shorthaul_agent.cli build-payload --workbook examples/workbook_template/shorthaul_dispatch_template.xlsx --request examples/external_request.txt --output outputs/schedule_payload.json</pre>
           <div class="hint" data-i18n="onboardingLinks">接口文档：GET /schema；CSV 模板：GET /templates；本地 CSV 求解：POST /schedule/from-csv-dir。</div>
         </div>
       </section>
@@ -491,22 +569,38 @@ DASHBOARD_HTML = r"""<!doctype html>
     const i18n = {
       zh: {
         tagline: "自然语言约束 + CP-SAT 调度器 + 可视化方案",
-        scenarioTitle: "场景设置",
+        scenarioTitle: "示例场景与高级编辑",
         loadSample: "加载示例场景",
         validateData: "校验当前数据",
-        runOptimization: "运行优化",
+        runOptimization: "运行当前 JSON",
         requestLabel: "调度需求",
-        scenarioHint: "可替换下方 JSON 中的线路、车队和预测货量，用于同类调度问题。",
+        scenarioHint: "普通用户可直接上传 Excel；本区用于加载示例、调试 API payload 或做二次开发。",
         uploadTitle: "上传本地文件运行",
-        uploadIntro: "支持直接上传完整 payload.json，或上传标准 CSV 文件组：fleets.csv、routes.csv、forecast.csv。上传后会调用同一套求解器并在右侧展示 KPI 与甘特图。",
+        uploadIntro: "推荐只上传一个 Excel 工作簿。把车队、线路、货量粘贴到模板中的 fleets、routes、demand 三张表，即可运行优化。",
+        guideStep1Title: "1 下载模板",
+        guideStep1Body: "用 Excel 打开模板，查看每张表的列名和样例。",
+        guideStep2Title: "2 粘贴数据",
+        guideStep2Body: "从 TMS、Excel 或数据库导出后复制到三张必需表。",
+        guideStep3Title: "3 上传运行",
+        guideStep3Body: "选择工作簿，系统自动转换为内部 JSON 并求解。",
+        guideStep4Title: "4 查看结果",
+        guideStep4Body: "右侧展示 KPI、甘特图、外部承运和原始响应。",
+        workbookFile: "调度数据工作簿 .xlsx",
         payloadFile: "完整 payload.json（可选）",
         uploadInstanceId: "场景 ID",
         uploadDate: "计划日期",
         runUpload: "上传并运行",
         clearUpload: "清空上传文件",
-        uploadDPackage: "完整案例数据包可由 scripts/export_d_problem_upload_package.py 生成，生成后选择其中的 CSV 或 payload.json 即可运行。",
-        schemaLink: "查看输入契约",
-        templateLink: "查看 CSV 模板",
+        downloadWorkbook: "下载 Excel 模板",
+        contractLink: "查看接入教程",
+        templateLink: "查看模板格式",
+        templateQuickTitle: "最小输入格式",
+        templateSheet: "工作表",
+        templateColumns: "必需字段",
+        templateExample: "示例",
+        optionalReady: "ready_time 可选",
+        advancedUpload: "高级：CSV / JSON 接入",
+        advancedUploadIntro: "用于系统集成或自动化导出。普通用户优先使用上方单个 Excel 工作簿。",
         constraintsTitle: "约束与优化目标",
         vehicleCapacity: "车辆容量",
         containerCapacity: "容器容量",
@@ -523,7 +617,8 @@ DASHBOARD_HTML = r"""<!doctype html>
         turnoverWeight: "周转权重",
         fillWeight: "装载率权重",
         preferCpsat: "优先使用 CP-SAT",
-        instanceTitle: "场景 JSON",
+        instanceTitle: "高级：内部 JSON",
+        instanceHint: "这是系统内部 payload 结构。外部业务人员通常不需要手写它，上传 Excel 后系统会自动转换。",
         kpiTitle: "方案指标",
         ganttTitle: "调度甘特图",
         ganttAll: "全部任务",
@@ -532,11 +627,11 @@ DASHBOARD_HTML = r"""<!doctype html>
         ganttContainer: "仅容器任务",
         ganttSummary: "显示任务 {shown}/{total}；车辆 {vehicles}；外部承运 {external}",
         rawTitle: "原始结果",
-        onboardingTitle: "接入自己的数据",
-        onboardingStep1: "准备 fleets.csv、routes.csv、forecast.csv，可选 milk_run_pairs.csv。",
-        onboardingStep2: "运行 build-payload 命令生成可提交给 /schedule 的 JSON。",
-        onboardingStep3: "将生成的 instance 粘贴到上方，或直接从外部系统 POST 到 /schedule。",
-        onboardingLinks: "接口文档：GET /schema；CSV 模板：GET /templates；本地 CSV 求解：POST /schedule/from-csv-dir。",
+        onboardingTitle: "外部系统接入",
+        onboardingStep1: "人工使用推荐上传单个 Excel 工作簿；系统集成推荐调用 POST /schedule/upload。",
+        onboardingStep2: "若已有业务库，可导出为工作簿模板的三张主表：fleets、routes、demand。",
+        onboardingStep3: "高级场景仍可直接 POST 内部 JSON 到 /schedule，或上传 CSV 文件组。",
+        onboardingLinks: "人类可读教程：GET /contract；模板预览：GET /templates/view；机器 schema：GET /schema。",
         statusInitial: "加载示例场景后即可运行调度器。",
         statusLoaded: "示例场景已加载。可修改约束或目标权重后运行优化。",
         statusValidating: "正在校验数据...",
@@ -558,22 +653,38 @@ DASHBOARD_HTML = r"""<!doctype html>
       },
       en: {
         tagline: "LLM-ready constraints + CP-SAT scheduler + visual dispatch plan",
-        scenarioTitle: "Scenario",
+        scenarioTitle: "Sample and advanced editing",
         loadSample: "Load sample scenario",
         validateData: "Validate data",
-        runOptimization: "Run optimization",
+        runOptimization: "Run current JSON",
         requestLabel: "Scheduling request",
-        scenarioHint: "Replace the instance JSON with your own routes, fleets, and forecast buckets for similar dispatch problems.",
+        scenarioHint: "Most users can upload Excel directly. This area is for sample loading, API payload debugging, or custom development.",
         uploadTitle: "Upload local files",
-        uploadIntro: "Upload a complete payload.json, or upload the standard CSV set: fleets.csv, routes.csv, and forecast.csv. The same solver runs and the KPIs/Gantt chart appear on the right.",
+        uploadIntro: "Recommended path: upload one Excel workbook. Paste fleets, routes, and demand into the template sheets and run optimization.",
+        guideStep1Title: "1 Download template",
+        guideStep1Body: "Open the workbook and inspect sheet names, columns, and sample rows.",
+        guideStep2Title: "2 Paste data",
+        guideStep2Body: "Copy exports from TMS, Excel, or a database into the required sheets.",
+        guideStep3Title: "3 Upload and run",
+        guideStep3Body: "The service converts the workbook to internal JSON and solves it.",
+        guideStep4Title: "4 Inspect result",
+        guideStep4Body: "KPIs, Gantt chart, external carriers, and raw response appear on the right.",
+        workbookFile: "Dispatch workbook .xlsx",
         payloadFile: "Complete payload.json (optional)",
         uploadInstanceId: "Instance ID",
         uploadDate: "Planning date",
         runUpload: "Upload and run",
         clearUpload: "Clear uploaded files",
-        uploadDPackage: "The full example package can be generated by scripts/export_d_problem_upload_package.py. Select its CSV files or payload.json here to run it.",
-        schemaLink: "View input contract",
-        templateLink: "View CSV templates",
+        downloadWorkbook: "Download Excel template",
+        contractLink: "View onboarding guide",
+        templateLink: "Preview template format",
+        templateQuickTitle: "Minimum input format",
+        templateSheet: "Sheet",
+        templateColumns: "Required columns",
+        templateExample: "Example",
+        optionalReady: "ready_time optional",
+        advancedUpload: "Advanced: CSV / JSON input",
+        advancedUploadIntro: "For system integration and automated exports. Most users should start with the single workbook above.",
         constraintsTitle: "Constraints and objective",
         vehicleCapacity: "Vehicle capacity",
         containerCapacity: "Container capacity",
@@ -590,7 +701,8 @@ DASHBOARD_HTML = r"""<!doctype html>
         turnoverWeight: "Turnover weight",
         fillWeight: "Fill-rate weight",
         preferCpsat: "Prefer CP-SAT",
-        instanceTitle: "Instance JSON",
+        instanceTitle: "Advanced: internal JSON",
+        instanceHint: "This is the internal payload structure. Business users usually do not need to write it; Excel uploads are converted automatically.",
         kpiTitle: "Solution KPIs",
         ganttTitle: "Dispatch Gantt",
         ganttAll: "All tasks",
@@ -599,11 +711,11 @@ DASHBOARD_HTML = r"""<!doctype html>
         ganttContainer: "Container tasks",
         ganttSummary: "Showing {shown}/{total} tasks; vehicles {vehicles}; external {external}",
         rawTitle: "Raw solution",
-        onboardingTitle: "Use your own data",
-        onboardingStep1: "Prepare fleets.csv, routes.csv, forecast.csv, and optional milk_run_pairs.csv.",
-        onboardingStep2: "Run build-payload to generate a JSON payload for /schedule.",
-        onboardingStep3: "Paste the generated instance above, or POST the payload from your external system.",
-        onboardingLinks: "Contract: GET /schema; templates: GET /templates; server-local CSV solve: POST /schedule/from-csv-dir.",
+        onboardingTitle: "External integration",
+        onboardingStep1: "For manual use, upload one Excel workbook. For systems, call POST /schedule/upload.",
+        onboardingStep2: "If data already lives in a database, export it into the workbook sheets: fleets, routes, demand.",
+        onboardingStep3: "Advanced integrations can still POST internal JSON to /schedule or upload CSV files.",
+        onboardingLinks: "Human guide: GET /contract; template preview: GET /templates/view; machine schema: GET /schema.",
         statusInitial: "Load the sample scenario and run the scheduler.",
         statusLoaded: "Sample scenario loaded. Change constraints or objective weights, then run optimization.",
         statusValidating: "Validating data...",
@@ -744,12 +856,18 @@ DASHBOARD_HTML = r"""<!doctype html>
       $("runUpload").disabled = true;
       setStatusKey("statusUploading");
       try {
+        const workbookFile = $("workbookFile").files[0];
         const payloadFile = $("payloadFile").files[0];
         const formData = new FormData();
         formData.append("prefer_cpsat", $("preferCpsat").checked ? "true" : "false");
         formData.append("config_overrides_json", JSON.stringify(configOverrides()));
 
-        if (payloadFile) {
+        if (workbookFile) {
+          formData.append("request", $("request").value || "请根据上传数据生成短途运输调度方案。");
+          formData.append("instance_id", $("uploadInstanceId").value || "uploaded-instance");
+          formData.append("date", $("uploadDate").value || "");
+          formData.append("workbook", workbookFile);
+        } else if (payloadFile) {
           const payloadText = await payloadFile.text();
           const uploadedPayload = JSON.parse(payloadText);
           if (uploadedPayload.request) {
@@ -801,7 +919,7 @@ DASHBOARD_HTML = r"""<!doctype html>
     }
 
     function clearUploadedFiles() {
-      ["payloadFile", "fleetsFile", "routesFile", "forecastFile", "milkRunFile", "configFile"].forEach((id) => {
+      ["workbookFile", "payloadFile", "fleetsFile", "routesFile", "forecastFile", "milkRunFile", "configFile"].forEach((id) => {
         $(id).value = "";
       });
       setStatusKey("statusInitial");

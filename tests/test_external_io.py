@@ -6,7 +6,13 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from shorthaul_agent import DispatchOrchestrator, ProblemConfig  # noqa: E402
 from shorthaul_agent.d_problem_package import write_upload_package  # noqa: E402
-from shorthaul_agent.external_io import build_payload_from_csv_dir, load_instance_from_csv_dir, schema_payload  # noqa: E402
+from shorthaul_agent.external_io import (  # noqa: E402
+    build_payload_from_csv_dir,
+    build_payload_from_workbook,
+    load_instance_from_csv_dir,
+    schema_payload,
+    write_workbook_template,
+)
 from shorthaul_agent.models import Instance  # noqa: E402
 from shorthaul_agent.web_ui import demo_payload  # noqa: E402
 
@@ -35,6 +41,8 @@ def test_csv_template_builds_runnable_payload():
 def test_schema_lists_required_external_files():
     schema = schema_payload()
 
+    assert schema["recommended_input"] == "single workbook: shorthaul_dispatch_template.xlsx"
+    assert schema["required_workbook_sheets"] == ["fleets", "routes", "demand"]
     assert schema["required_files"] == ["fleets.csv", "routes.csv", "forecast.csv"]
     assert "routes.csv" in schema["csv_schemas"]
     assert schema["endpoints"]["multipart_upload_solve"] == "POST /schedule/upload"
@@ -66,3 +74,26 @@ def test_upload_package_writer_round_trips_to_csv(tmp_path):
     assert (tmp_path / "payload.json").exists()
     assert len(instance.routes) == len(payload["instance"]["routes"])
     assert len(instance.forecast) == len(payload["instance"]["forecast"])
+
+
+def test_workbook_template_builds_runnable_payload(tmp_path):
+    workbook = tmp_path / "shorthaul_dispatch_template.xlsx"
+    write_workbook_template(workbook)
+
+    payload = build_payload_from_workbook(
+        workbook,
+        "Schedule workbook scenario.",
+        instance_id="workbook-test",
+        date="2024-12-16",
+        prefer_cpsat=False,
+    )
+    instance = Instance.from_dict(payload["instance"])
+    config = ProblemConfig(prefer_cpsat=False).merged(payload["config_overrides"])
+    result = DispatchOrchestrator(config).run(payload["request"], instance)
+
+    assert instance.id == "workbook-test"
+    assert len(instance.routes) == 3
+    assert len(instance.fleets) == 2
+    assert len(instance.forecast) == 4
+    assert config.milk_run_pairs == {("Stop-01", "Stop-02")}
+    assert result.solution.status == "FEASIBLE"

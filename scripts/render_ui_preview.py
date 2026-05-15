@@ -65,32 +65,32 @@ def render() -> None:
 
     box(draw, (24, 86, 430, 812))
     draw.rectangle((25, 87, 429, 126), fill="#fafbfc")
-    label(draw, (42, 101), "场景设置与约束", FONT_16)
-    label(draw, (42, 148), "调度需求", FONT_12, "#667085")
-    input_box(draw, (42, 170, 410, 250), "请为 2024-12-16 生成调度方案，降低成本...")
+    label(draw, (42, 101), "上传 Excel 工作簿并运行", FONT_16)
+    label(draw, (42, 148), "1 下载模板  2 填 fleets/routes/demand  3 上传运行", FONT_13, "#667085")
+    input_box(draw, (42, 178, 410, 216), "shorthaul_dispatch_workbook.xlsx")
+    draw.rounded_rectangle((42, 230, 216, 266), radius=6, fill="#0f766e", outline="#0f766e")
+    label(draw, (82, 240), "上传并运行", FONT_13, "#ffffff")
+    draw.rounded_rectangle((232, 230, 410, 266), radius=6, fill="#ffffff", outline="#d7dce3")
+    label(draw, (272, 240), "查看模板格式", FONT_13)
 
-    draw.rounded_rectangle((42, 272, 188, 308), radius=6, fill="#ffffff", outline="#d7dce3")
-    label(draw, (66, 282), "加载示例", FONT_13)
-    draw.rounded_rectangle((198, 272, 410, 308), radius=6, fill="#0f766e", outline="#0f766e")
-    label(draw, (260, 282), "运行优化", FONT_13, "#ffffff")
+    box(draw, (42, 292, 410, 418), "#ffffff")
+    label(draw, (58, 308), "最小输入格式", FONT_14)
+    label(draw, (58, 342), "fleets: fleet_id, owned_vehicles", FONT_12, "#475467")
+    label(draw, (58, 370), "routes: route_id, deadline, travel_min, fleet_id", FONT_12, "#475467")
+    label(draw, (58, 398), "demand: route_id, volume, ready_time(可选)", FONT_12, "#475467")
 
-    label(draw, (42, 330), "上传本地文件运行", FONT_14)
-    input_box(draw, (42, 356, 210, 394), "payload.json")
-    input_box(draw, (232, 356, 410, 394), "CSV 文件组")
-    draw.rounded_rectangle((42, 406, 410, 442), radius=6, fill="#0f766e", outline="#0f766e")
-    label(draw, (180, 416), "上传并运行", FONT_13, "#ffffff")
+    label(draw, (42, 454), "约束与优化目标", FONT_14)
+    label(draw, (42, 486), "车辆容量", FONT_12, "#667085")
+    input_box(draw, (42, 506, 210, 544), "1000")
+    label(draw, (232, 486), "容器容量", FONT_12, "#667085")
+    input_box(draw, (232, 506, 410, 544), "800")
 
-    label(draw, (42, 466), "车辆容量", FONT_12, "#667085")
-    input_box(draw, (42, 486, 210, 524), "1000")
-    label(draw, (232, 466), "容器容量", FONT_12, "#667085")
-    input_box(draw, (232, 486, 410, 524), "800")
+    label(draw, (42, 566), "最大串点数", FONT_12, "#667085")
+    input_box(draw, (42, 586, 210, 624), "3")
+    label(draw, (232, 566), "尾货策略", FONT_12, "#667085")
+    input_box(draw, (232, 586, 410, 624), "成本优先")
 
-    label(draw, (42, 546), "最大串点数", FONT_12, "#667085")
-    input_box(draw, (42, 566, 210, 604), "3")
-    label(draw, (232, 546), "尾货策略", FONT_12, "#667085")
-    input_box(draw, (232, 566, 410, 604), "成本优先")
-
-    label(draw, (42, 630), "优化目标权重", FONT_14)
+    label(draw, (42, 650), "优化目标权重", FONT_14)
     for idx, (name, value, color) in enumerate(
         [
             ("成本", 0.92, "#0f766e"),
@@ -98,12 +98,12 @@ def render() -> None:
             ("装载率", 0.36, "#4f46e5"),
         ]
     ):
-        y = 658 + idx * 34
+        y = 678 + idx * 34
         label(draw, (42, y), name, FONT_12, "#667085")
         draw.rounded_rectangle((118, y + 3, 385, y + 13), radius=5, fill="#e5e7eb")
         draw.rounded_rectangle((118, y + 3, int(118 + 267 * value), y + 13), radius=5, fill=color)
 
-    label(draw, (42, 766), "JSON/API 同步输出", FONT_14)
+    label(draw, (42, 790), "高级：JSON/API 同步输出", FONT_14)
 
     box(draw, (454, 86, 1414, 812))
     draw.rectangle((455, 87, 1413, 126), fill="#fafbfc")

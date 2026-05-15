@@ -7,7 +7,15 @@ from typing import Any, Dict, Optional
 
 from shorthaul_agent import DispatchOrchestrator, ProblemConfig
 from shorthaul_agent.experiment import load_experiment_config, run_experiment
-from shorthaul_agent.external_io import CSV_TEMPLATES, build_payload_from_csv_dir, schema_payload
+from shorthaul_agent.external_io import (
+    CSV_TEMPLATES,
+    build_payload_from_csv_dir,
+    build_payload_from_workbook,
+    render_contract_html,
+    render_templates_html,
+    schema_payload,
+    workbook_template_bytes,
+)
 from shorthaul_agent.models import Instance
 from shorthaul_agent.validation import validate_instance
 from shorthaul_agent.web_ui import demo_payload, render_dashboard_html
@@ -32,12 +40,14 @@ CSV_UPLOAD_ALIASES = {
 }
 PAYLOAD_UPLOAD_FIELDS = {"payload", "payload_json", "schedule_payload"}
 PAYLOAD_UPLOAD_FILENAMES = {"payload.json", "schedule_payload.json"}
+WORKBOOK_UPLOAD_FIELDS = {"workbook", "xlsx", "excel", "scenario_workbook"}
+WORKBOOK_UPLOAD_SUFFIXES = {".xlsx", ".xlsm", ".xls"}
 
 
 def create_app():
     try:
         from fastapi import Body, FastAPI, HTTPException, Request
-        from fastapi.responses import HTMLResponse
+        from fastapi.responses import HTMLResponse, PlainTextResponse, Response
         from pydantic import BaseModel, Field
     except ImportError as exc:
         raise RuntimeError("Install the API extra first: pip install -e '.[api]'") from exc
@@ -83,9 +93,42 @@ def create_app():
     def schema() -> Dict[str, Any]:
         return schema_payload()
 
+    @app.get("/contract", response_class=HTMLResponse)
+    def contract() -> HTMLResponse:
+        return HTMLResponse(render_contract_html())
+
     @app.get("/templates")
     def templates() -> Dict[str, str]:
         return CSV_TEMPLATES
+
+    @app.get("/templates/view", response_class=HTMLResponse)
+    def templates_view() -> HTMLResponse:
+        return HTMLResponse(render_templates_html())
+
+    @app.get("/templates/workbook.xlsx")
+    def workbook_template() -> Response:
+        return Response(
+            content=workbook_template_bytes(),
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": 'attachment; filename="shorthaul_dispatch_template.xlsx"'},
+        )
+
+    @app.get("/templates/csv/{template_name}")
+    def csv_template(template_name: str) -> PlainTextResponse:
+        if template_name not in CSV_TEMPLATES:
+            raise HTTPException(status_code=404, detail="Template not found.")
+        return PlainTextResponse(
+            CSV_TEMPLATES[template_name],
+            media_type="text/csv; charset=utf-8",
+            headers={"Content-Disposition": f'attachment; filename="{template_name}"'},
+        )
+
+    @app.get("/assets/dispatch_ui_demo.png")
+    def ui_preview_asset() -> Response:
+        path = Path("docs/assets/dispatch_ui_demo.png")
+        if not path.exists():
+            raise HTTPException(status_code=404, detail="Asset not found.")
+        return Response(content=path.read_bytes(), media_type="image/png")
 
     @app.get("/experiments")
     def experiments() -> Dict[str, Any]:
@@ -201,6 +244,7 @@ async def _payload_from_multipart_form(form: Any) -> tuple[Dict[str, Any], Dict[
     force_request = _form_bool(form.get("force_request"), default=False)
 
     uploaded_payload: Optional[Dict[str, Any]] = None
+    uploaded_workbook: Optional[tuple[str, bytes]] = None
     uploaded_files: Dict[str, bytes] = {}
     uploaded_names: list[str] = []
     for field_name, value in _form_items(form):
@@ -217,6 +261,9 @@ async def _payload_from_multipart_form(form: Any) -> tuple[Dict[str, Any], Dict[
         if field_key in PAYLOAD_UPLOAD_FIELDS or filename_key in PAYLOAD_UPLOAD_FILENAMES:
             uploaded_payload = json.loads(content.decode("utf-8-sig"))
             continue
+        if field_key in WORKBOOK_UPLOAD_FIELDS or Path(filename_key).suffix in WORKBOOK_UPLOAD_SUFFIXES:
+            uploaded_workbook = (filename, content)
+            continue
         canonical = CSV_UPLOAD_ALIASES.get(field_key) or CSV_UPLOAD_ALIASES.get(filename_key)
         if canonical:
             uploaded_files[canonical] = content
@@ -228,6 +275,21 @@ async def _payload_from_multipart_form(form: Any) -> tuple[Dict[str, Any], Dict[
         payload["prefer_cpsat"] = prefer_cpsat
         payload["config_overrides"] = _merge_dicts(payload.get("config_overrides", {}), form_overrides)
         return payload, {"source": "payload_json", "files": uploaded_names}
+
+    if uploaded_workbook is not None:
+        filename, content = uploaded_workbook
+        with tempfile.TemporaryDirectory(prefix="shorthaul-workbook-upload-") as tmp_dir:
+            workbook_path = Path(tmp_dir) / filename
+            workbook_path.write_bytes(content)
+            payload = build_payload_from_workbook(
+                workbook_path,
+                request_text,
+                instance_id=instance_id,
+                date=date,
+                prefer_cpsat=prefer_cpsat,
+                config_overrides=form_overrides,
+            )
+        return payload, {"source": "workbook_upload", "files": [filename]}
 
     missing = [name for name in ("fleets.csv", "routes.csv", "forecast.csv") if name not in uploaded_files]
     if missing:

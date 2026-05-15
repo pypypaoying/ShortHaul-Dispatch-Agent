@@ -497,11 +497,12 @@ DASHBOARD_HTML = r"""<!doctype html>
                 <option value="deepseek" data-i18n="providerDeepSeek">DeepSeek</option>
                 <option value="qwen" data-i18n="providerQwen">通义千问 / DashScope</option>
                 <option value="openai" data-i18n="providerOpenAI">OpenAI 官方</option>
+                <option value="gemini" data-i18n="providerGemini">Google Gemini</option>
                 <option value="moonshot" data-i18n="providerMoonshot">月之暗面 / Kimi</option>
                 <option value="zhipu" data-i18n="providerZhipu">智谱 GLM</option>
                 <option value="openrouter" data-i18n="providerOpenRouter">OpenRouter</option>
               </select></div>
-              <div><label for="agentModel" data-i18n="agentModel">模型名</label><input id="agentModel" data-i18n-placeholder="agentModelPlaceholder" placeholder="例如 deepseek-v4-flash / qwen-plus / 自定义模型名" /></div>
+              <div><label for="agentModel" data-i18n="agentModel">模型名</label><input id="agentModel" data-i18n-placeholder="agentModelPlaceholder" placeholder="例如 deepseek-v4-flash / qwen3.6-flash / gemini-2.5-flash" /></div>
               <div><label for="agentBaseUrl" data-i18n="agentBaseUrl">API Base URL</label><input id="agentBaseUrl" data-i18n-placeholder="agentBaseUrlPlaceholder" placeholder="https://your-provider.example/v1" /></div>
               <div><label for="agentTimeout" data-i18n="agentTimeout">超时时间（秒）</label><input id="agentTimeout" type="number" min="10" max="300" value="120" /></div>
               <div>
@@ -509,7 +510,7 @@ DASHBOARD_HTML = r"""<!doctype html>
                 <input id="agentApiKey" type="password" autocomplete="off" />
               </div>
             </div>
-            <div class="recommendation" data-i18n="modelRecommendation">推荐先试 DeepSeek deepseek-v4-flash 或通义千问 qwen-plus；如果字段混乱、备注多、跨表关系复杂，优先使用更强的长上下文模型，并用下方基准脚本在本机 API Key 上复测。</div>
+            <div class="recommendation" data-i18n="modelRecommendation">推荐先试 DeepSeek deepseek-v4-flash、通义千问 qwen3.6-flash 或 Gemini 2.5 Flash；如果字段混乱、备注多、跨表关系复杂，请用下方基准脚本在本机 API Key 上复测。</div>
             <div class="hint" data-i18n="agentEnvHint">服务端环境变量同样支持：SHORT_HAUL_INGESTION_PROVIDER、SHORT_HAUL_INGESTION_API_KEY、SHORT_HAUL_INGESTION_BASE_URL、SHORT_HAUL_INGESTION_MODEL。</div>
           </details>
           <div class="toolbar" style="margin-top:12px">
@@ -620,11 +621,12 @@ DASHBOARD_HTML = r"""<!doctype html>
 
     const providerPresets = {
       deepseek: {baseUrl: "https://api.deepseek.com/v1", model: "deepseek-v4-flash"},
-      qwen: {baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1", model: "qwen-plus"},
+      qwen: {baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1", model: "qwen3.6-flash"},
       openai: {baseUrl: "https://api.openai.com/v1", model: "gpt-4.1-mini"},
-      moonshot: {baseUrl: "https://api.moonshot.cn/v1", model: "moonshot-v1-8k"},
-      zhipu: {baseUrl: "https://open.bigmodel.cn/api/paas/v4", model: "glm-4-flash"},
-      openrouter: {baseUrl: "https://openrouter.ai/api/v1", model: "openai/gpt-4.1-mini"}
+      gemini: {baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai/", model: "gemini-2.5-flash"},
+      moonshot: {baseUrl: "https://api.moonshot.cn/v1", model: "kimi-k2-turbo-preview"},
+      zhipu: {baseUrl: "https://open.bigmodel.cn/api/paas/v4", model: "glm-4.7-flash"},
+      openrouter: {baseUrl: "https://openrouter.ai/api/v1", model: "google/gemini-2.5-flash"}
     };
     const pipelineStages = ["prepare", "router", "align", "validate", "solve", "render"];
 
@@ -657,16 +659,17 @@ DASHBOARD_HTML = r"""<!doctype html>
         providerDeepSeek: "DeepSeek",
         providerQwen: "通义千问 / DashScope",
         providerOpenAI: "OpenAI 官方",
+        providerGemini: "Google Gemini",
         providerMoonshot: "月之暗面 / Kimi",
         providerZhipu: "智谱 GLM",
         providerOpenRouter: "OpenRouter",
         agentModel: "模型名",
-        agentModelPlaceholder: "例如 deepseek-v4-flash / qwen-plus / 自定义模型名",
+        agentModelPlaceholder: "例如 deepseek-v4-flash / qwen3.6-flash / gemini-2.5-flash",
         agentBaseUrl: "API Base URL",
         agentBaseUrlPlaceholder: "https://your-provider.example/v1",
         agentTimeout: "超时时间（秒）",
         agentApiKey: "API Key（可选，留空则使用环境变量）",
-        modelRecommendation: "推荐先试 DeepSeek deepseek-v4-flash 或通义千问 qwen-plus；如果字段混乱、备注多、跨表关系复杂，优先使用更强的长上下文模型，并用 scripts/benchmark_llm_ingestion.py 在本机 API Key 上复测。",
+        modelRecommendation: "推荐先试 DeepSeek deepseek-v4-flash、通义千问 qwen3.6-flash 或 Gemini 2.5 Flash；如果字段混乱、备注多、跨表关系复杂，请用 scripts/benchmark_llm_ingestion.py 在本机 API Key 上复测。",
         agentEnvHint: "服务端环境变量同样支持：SHORT_HAUL_INGESTION_PROVIDER、SHORT_HAUL_INGESTION_API_KEY、SHORT_HAUL_INGESTION_BASE_URL、SHORT_HAUL_INGESTION_MODEL、SHORT_HAUL_INGESTION_TIMEOUT_SECONDS。",
         payloadFile: "完整 payload.json（可选）",
         uploadInstanceId: "场景 ID",
@@ -773,16 +776,17 @@ DASHBOARD_HTML = r"""<!doctype html>
         providerDeepSeek: "DeepSeek",
         providerQwen: "Qwen / DashScope",
         providerOpenAI: "Official OpenAI",
+        providerGemini: "Google Gemini",
         providerMoonshot: "Moonshot / Kimi",
         providerZhipu: "Zhipu GLM",
         providerOpenRouter: "OpenRouter",
         agentModel: "Model name",
-        agentModelPlaceholder: "e.g. deepseek-v4-flash / qwen-plus / custom model",
+        agentModelPlaceholder: "e.g. deepseek-v4-flash / qwen3.6-flash / gemini-2.5-flash",
         agentBaseUrl: "API Base URL",
         agentBaseUrlPlaceholder: "https://your-provider.example/v1",
         agentTimeout: "Timeout seconds",
         agentApiKey: "API Key (optional; env is used when blank)",
-        modelRecommendation: "Recommended first tries: DeepSeek deepseek-v4-flash or Qwen qwen-plus. For messy cross-sheet exports with many notes, use a stronger long-context model and re-benchmark with scripts/benchmark_llm_ingestion.py on your own API keys.",
+        modelRecommendation: "Recommended first tries: DeepSeek deepseek-v4-flash, Qwen qwen3.6-flash, or Gemini 2.5 Flash. For messy cross-sheet exports with many notes, re-benchmark with scripts/benchmark_llm_ingestion.py on your own API keys.",
         agentEnvHint: "Server environment variables are also supported: SHORT_HAUL_INGESTION_PROVIDER, SHORT_HAUL_INGESTION_API_KEY, SHORT_HAUL_INGESTION_BASE_URL, SHORT_HAUL_INGESTION_MODEL, SHORT_HAUL_INGESTION_TIMEOUT_SECONDS.",
         payloadFile: "Complete payload.json (optional)",
         uploadInstanceId: "Instance ID",

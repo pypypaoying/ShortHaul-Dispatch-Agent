@@ -143,7 +143,15 @@ def discover_candidates(providers_json: str = "") -> list[ProviderCandidate]:
             "base_url_env": "DASHSCOPE_BASE_URL",
             "model_env": "DASHSCOPE_MODEL",
             "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
-            "model": "qwen-plus",
+            "model": "qwen3.6-flash",
+        },
+        {
+            "name": "Google Gemini",
+            "api_key_env": "GEMINI_API_KEY",
+            "base_url_env": "GEMINI_BASE_URL",
+            "model_env": "GEMINI_MODEL",
+            "base_url": "https://generativelanguage.googleapis.com/v1beta/openai/",
+            "model": "gemini-2.5-flash",
         },
         {
             "name": "OpenAI",
@@ -160,7 +168,7 @@ def discover_candidates(providers_json: str = "") -> list[ProviderCandidate]:
             "base_url_env": "MOONSHOT_BASE_URL",
             "model_env": "MOONSHOT_MODEL",
             "base_url": "https://api.moonshot.cn/v1",
-            "model": "moonshot-v1-8k",
+            "model": "kimi-k2-turbo-preview",
         },
         {
             "name": "Zhipu GLM",
@@ -168,7 +176,7 @@ def discover_candidates(providers_json: str = "") -> list[ProviderCandidate]:
             "base_url_env": "ZHIPU_BASE_URL",
             "model_env": "ZHIPU_MODEL",
             "base_url": "https://open.bigmodel.cn/api/paas/v4",
-            "model": "glm-4-flash",
+            "model": "glm-4.7-flash",
         },
         {
             "name": "OpenRouter",
@@ -176,7 +184,7 @@ def discover_candidates(providers_json: str = "") -> list[ProviderCandidate]:
             "base_url_env": "OPENROUTER_BASE_URL",
             "model_env": "OPENROUTER_MODEL",
             "base_url": "https://openrouter.ai/api/v1",
-            "model": "openai/gpt-4.1-mini",
+            "model": "google/gemini-2.5-flash",
         },
         {
             "name": "SiliconFlow",

@@ -181,8 +181,12 @@ def create_app():
     @app.post("/schedule")
     def schedule(payload: ScheduleRequest = Body(...)) -> Dict[str, Any]:
         instance = Instance.from_dict(payload.instance)
-        config = ProblemConfig(prefer_cpsat=payload.prefer_cpsat).merged(payload.config_overrides)
-        return DispatchOrchestrator(config).run(payload.request, instance).to_dict()
+        config = ProblemConfig(prefer_cpsat=payload.prefer_cpsat)
+        return (
+            DispatchOrchestrator(config, explicit_overrides=payload.config_overrides)
+            .run(payload.request, instance)
+            .to_dict()
+        )
 
     @app.post("/schedule/upload")
     async def schedule_upload(request: Request) -> Dict[str, Any]:
@@ -197,10 +201,13 @@ def create_app():
         try:
             payload, upload_meta = await _payload_from_multipart_form(form)
             instance = Instance.from_dict(payload["instance"])
-            config = ProblemConfig(prefer_cpsat=bool(payload.get("prefer_cpsat", True))).merged(
-                payload.get("config_overrides", {})
+            overrides = payload.get("config_overrides", {})
+            config = ProblemConfig(prefer_cpsat=bool(payload.get("prefer_cpsat", True)))
+            result = (
+                DispatchOrchestrator(config, explicit_overrides=overrides)
+                .run(str(payload.get("request", "")), instance)
+                .to_dict()
             )
-            result = DispatchOrchestrator(config).run(str(payload.get("request", "")), instance).to_dict()
             result["upload"] = upload_meta
             return result
         except Exception as exc:
@@ -217,8 +224,10 @@ def create_app():
             config_overrides=payload.config_overrides,
         )
         instance = Instance.from_dict(schedule_payload["instance"])
-        config = ProblemConfig(prefer_cpsat=schedule_payload["prefer_cpsat"]).merged(schedule_payload["config_overrides"])
-        return DispatchOrchestrator(config).run(schedule_payload["request"], instance).to_dict()
+        config = ProblemConfig(prefer_cpsat=schedule_payload["prefer_cpsat"])
+        return DispatchOrchestrator(config, explicit_overrides=schedule_payload["config_overrides"]).run(
+            schedule_payload["request"], instance
+        ).to_dict()
 
     @app.post("/experiments/d-problem")
     def run_d_problem(payload: ExperimentRequest = Body(...)) -> Dict[str, Any]:

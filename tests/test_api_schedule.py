@@ -38,7 +38,9 @@ def test_dashboard_defaults_to_chinese_and_has_language_selector():
     response = client.get("/")
 
     assert response.status_code == 200
-    assert "加载示例场景" in response.text
+    assert "上传本地文件运行" in response.text
+    assert "最小输入格式" in response.text
+    assert "示例场景与高级编辑" not in response.text
     assert 'id="language"' in response.text
     assert 'id="runUpload"' in response.text
     assert 'id="workbookFile"' in response.text
@@ -107,6 +109,21 @@ def test_schedule_upload_accepts_csv_files():
     assert data["solution"]["kpis"]["assigned_task_count"] == data["solution"]["kpis"]["task_count"]
 
 
+def test_schedule_explicit_config_overrides_parsed_request():
+    app = create_app()
+    client = TestClient(app)
+    payload = demo_payload()
+    payload["prefer_cpsat"] = False
+    payload["config_overrides"]["allow_container"] = False
+
+    response = client.post("/schedule", json=payload)
+
+    assert response.status_code == 200
+    assignments = response.json()["solution"]["assignments"]
+    assert assignments
+    assert not any(item["use_container"] for item in assignments)
+
+
 def test_schedule_upload_accepts_workbook(tmp_path):
     pytest.importorskip("multipart")
     app = create_app()
@@ -118,10 +135,11 @@ def test_schedule_upload_accepts_workbook(tmp_path):
         response = client.post(
             "/schedule/upload",
             data={
-                "request": "Schedule workbook short-haul data.",
+                "request": "Schedule workbook short-haul data and allow containers.",
                 "instance_id": "workbook-upload-test",
                 "date": "2024-12-16",
                 "prefer_cpsat": "false",
+                "config_overrides_json": '{"allow_container": false}',
             },
             files={
                 "workbook": (
@@ -137,3 +155,4 @@ def test_schedule_upload_accepts_workbook(tmp_path):
     assert data["upload"]["source"] == "workbook_upload"
     assert data["solution"]["status"] == "FEASIBLE"
     assert data["solution"]["kpis"]["assigned_task_count"] == data["solution"]["kpis"]["task_count"]
+    assert not any(item["use_container"] for item in data["solution"]["assignments"])

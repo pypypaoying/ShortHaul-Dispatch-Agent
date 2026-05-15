@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import Any, Optional
 
 from shorthaul_agent.models import AgentRunResult, Instance, ParsedRequirement, ProblemConfig, ScheduleSolution, ValidationReport
 from shorthaul_agent.parsing import RequirementParser
@@ -95,8 +95,13 @@ class ExplanationAgent:
 class DispatchOrchestrator:
     """Coordinate parser, checker, solver, explanation, and repair agents."""
 
-    def __init__(self, base_config: Optional[ProblemConfig] = None) -> None:
+    def __init__(
+        self,
+        base_config: Optional[ProblemConfig] = None,
+        explicit_overrides: Optional[dict[str, Any]] = None,
+    ) -> None:
         self.base_config = base_config or ProblemConfig()
+        self.explicit_overrides = explicit_overrides or {}
         self.parser_agent = RequirementParserAgent()
         self.checker_agent = ConstraintCheckerAgent()
         self.solver_agent = SolverAgent()
@@ -105,7 +110,7 @@ class DispatchOrchestrator:
 
     def run(self, request_text: str, instance: Instance) -> AgentRunResult:
         requirement = self.parser_agent.run(request_text)
-        config = self.base_config.merged(requirement.config_overrides)
+        config = self.base_config.merged(requirement.config_overrides).merged(self.explicit_overrides)
         validation = self.checker_agent.run_instance(instance, config)
         config, repair_actions = self.repair_agent.run(validation, config)
 

@@ -414,6 +414,10 @@ DASHBOARD_HTML = r"""<!doctype html>
         <h2 data-i18n="uploadTitle">上传本地文件运行</h2>
         <div class="body">
           <div class="hint" data-i18n="uploadIntro">推荐只上传一个 Excel 工作簿。把车队、线路、货量粘贴到模板中的 fleets、routes、demand 三张表，即可运行优化。</div>
+          <div style="margin-top:12px">
+            <label for="request" data-i18n="requestLabel">调度需求</label>
+            <textarea id="request">请基于上传数据生成短途运输调度方案，目标是在满足约束前提下降低成本并提升自有车周转效率。</textarea>
+          </div>
           <div class="guide-grid">
             <div class="guide-step"><strong data-i18n="guideStep1Title">1 下载模板</strong><span data-i18n="guideStep1Body">用 Excel 打开模板，查看每张表的列名和样例。</span></div>
             <div class="guide-step"><strong data-i18n="guideStep2Title">2 粘贴数据</strong><span data-i18n="guideStep2Body">从 TMS、Excel 或数据库导出后复制到三张必需表。</span></div>
@@ -469,23 +473,9 @@ DASHBOARD_HTML = r"""<!doctype html>
         </div>
       </section>
       <section>
-        <h2 data-i18n="scenarioTitle">示例场景与高级编辑</h2>
-        <div class="body">
-          <div class="toolbar">
-            <button id="loadDemo" data-i18n="loadSample">加载示例场景</button>
-            <button id="validateData" data-i18n="validateData">校验当前数据</button>
-            <button id="run" class="primary" data-i18n="runOptimization">运行当前 JSON</button>
-          </div>
-          <div style="margin-top:12px">
-            <label for="request" data-i18n="requestLabel">调度需求</label>
-            <textarea id="request"></textarea>
-          </div>
-          <div class="hint" data-i18n="scenarioHint">普通用户可直接上传 Excel；本区用于加载示例、调试 API payload 或做二次开发。</div>
-        </div>
-      </section>
-      <section>
         <h2 data-i18n="constraintsTitle">约束与优化目标</h2>
         <div class="body">
+          <div class="hint" data-i18n="constraintsHint">这里的显式参数会随上传请求提交，优先级高于自然语言描述和工作簿 settings 表。</div>
           <div class="grid-2">
             <div><label data-i18n="vehicleCapacity">车辆容量</label><input id="vehicleCapacity" type="number" value="1000" /></div>
             <div><label data-i18n="containerCapacity">容器容量</label><input id="containerCapacity" type="number" value="800" /></div>
@@ -509,15 +499,6 @@ DASHBOARD_HTML = r"""<!doctype html>
         </div>
       </section>
       <section>
-        <details open>
-          <summary data-i18n="instanceTitle">高级：内部 JSON</summary>
-          <div class="body">
-            <div class="hint" data-i18n="instanceHint">这是系统内部 payload 结构。外部业务人员通常不需要手写它，上传 Excel 后系统会自动转换。</div>
-            <textarea id="instance" class="json-editor"></textarea>
-          </div>
-        </details>
-      </section>
-      <section>
         <h2 data-i18n="onboardingTitle">接入自己的数据</h2>
         <div class="body">
           <ol class="hint-list">
@@ -537,7 +518,7 @@ DASHBOARD_HTML = r"""<!doctype html>
           <div class="metrics" id="metrics"></div>
           <div class="pill-row" id="warnings" style="margin-top:12px"></div>
         </div>
-        <div id="status" class="status" data-status-key="statusInitial">加载示例场景后即可运行调度器。</div>
+        <div id="status" class="status" data-status-key="statusInitial">选择 Excel 工作簿后即可运行调度器。</div>
       </section>
       <section>
         <h2 data-i18n="ganttTitle">调度甘特图</h2>
@@ -569,12 +550,12 @@ DASHBOARD_HTML = r"""<!doctype html>
     const i18n = {
       zh: {
         tagline: "自然语言约束 + CP-SAT 调度器 + 可视化方案",
-        scenarioTitle: "示例场景与高级编辑",
-        loadSample: "加载示例场景",
+        scenarioTitle: "高级编辑",
+        loadSample: "加载内置数据",
         validateData: "校验当前数据",
-        runOptimization: "运行当前 JSON",
+        runOptimization: "运行内部 JSON",
         requestLabel: "调度需求",
-        scenarioHint: "普通用户可直接上传 Excel；本区用于加载示例、调试 API payload 或做二次开发。",
+        scenarioHint: "普通用户可直接上传 Excel；高级入口用于调试 API payload 或做二次开发。",
         uploadTitle: "上传本地文件运行",
         uploadIntro: "推荐只上传一个 Excel 工作簿。把车队、线路、货量粘贴到模板中的 fleets、routes、demand 三张表，即可运行优化。",
         guideStep1Title: "1 下载模板",
@@ -602,6 +583,7 @@ DASHBOARD_HTML = r"""<!doctype html>
         advancedUpload: "高级：CSV / JSON 接入",
         advancedUploadIntro: "用于系统集成或自动化导出。普通用户优先使用上方单个 Excel 工作簿。",
         constraintsTitle: "约束与优化目标",
+        constraintsHint: "这里的显式参数会随上传请求提交，优先级高于自然语言描述和工作簿 settings 表。",
         vehicleCapacity: "车辆容量",
         containerCapacity: "容器容量",
         maxStops: "最大串点数",
@@ -632,14 +614,15 @@ DASHBOARD_HTML = r"""<!doctype html>
         onboardingStep2: "若已有业务库，可导出为工作簿模板的三张主表：fleets、routes、demand。",
         onboardingStep3: "高级场景仍可直接 POST 内部 JSON 到 /schedule，或上传 CSV 文件组。",
         onboardingLinks: "人类可读教程：GET /contract；模板预览：GET /templates/view；机器 schema：GET /schema。",
-        statusInitial: "加载示例场景后即可运行调度器。",
-        statusLoaded: "示例场景已加载。可修改约束或目标权重后运行优化。",
+        statusInitial: "选择 Excel 工作簿后即可运行调度器。",
+        statusLoaded: "内置数据已加载。可修改约束或目标权重后运行优化。",
         statusValidating: "正在校验数据...",
         statusValid: "数据校验通过",
         statusInvalid: "数据校验未通过",
         statusSolving: "正在求解...",
         statusUploading: "正在上传并求解...",
         statusUploadMissing: "缺少必需上传文件",
+        statusWorkbookMissing: "请选择 Excel 工作簿，或在高级入口上传 JSON/CSV",
         statusSolved: "求解完成",
         statusFailed: "运行失败",
         totalCost: "总成本",
@@ -653,12 +636,12 @@ DASHBOARD_HTML = r"""<!doctype html>
       },
       en: {
         tagline: "LLM-ready constraints + CP-SAT scheduler + visual dispatch plan",
-        scenarioTitle: "Sample and advanced editing",
-        loadSample: "Load sample scenario",
+        scenarioTitle: "Advanced editing",
+        loadSample: "Load built-in data",
         validateData: "Validate data",
-        runOptimization: "Run current JSON",
+        runOptimization: "Run internal JSON",
         requestLabel: "Scheduling request",
-        scenarioHint: "Most users can upload Excel directly. This area is for sample loading, API payload debugging, or custom development.",
+        scenarioHint: "Most users can upload Excel directly. Advanced input is for API payload debugging or custom development.",
         uploadTitle: "Upload local files",
         uploadIntro: "Recommended path: upload one Excel workbook. Paste fleets, routes, and demand into the template sheets and run optimization.",
         guideStep1Title: "1 Download template",
@@ -686,6 +669,7 @@ DASHBOARD_HTML = r"""<!doctype html>
         advancedUpload: "Advanced: CSV / JSON input",
         advancedUploadIntro: "For system integration and automated exports. Most users should start with the single workbook above.",
         constraintsTitle: "Constraints and objective",
+        constraintsHint: "These explicit controls are submitted with the upload request and take precedence over natural language text and workbook settings.",
         vehicleCapacity: "Vehicle capacity",
         containerCapacity: "Container capacity",
         maxStops: "Max milk-run stops",
@@ -716,14 +700,15 @@ DASHBOARD_HTML = r"""<!doctype html>
         onboardingStep2: "If data already lives in a database, export it into the workbook sheets: fleets, routes, demand.",
         onboardingStep3: "Advanced integrations can still POST internal JSON to /schedule or upload CSV files.",
         onboardingLinks: "Human guide: GET /contract; template preview: GET /templates/view; machine schema: GET /schema.",
-        statusInitial: "Load the sample scenario and run the scheduler.",
-        statusLoaded: "Sample scenario loaded. Change constraints or objective weights, then run optimization.",
+        statusInitial: "Select an Excel workbook to run the scheduler.",
+        statusLoaded: "Built-in data loaded. Change constraints or objective weights, then run optimization.",
         statusValidating: "Validating data...",
         statusValid: "Data validation passed",
         statusInvalid: "Data validation failed",
         statusSolving: "Solving...",
         statusUploading: "Uploading and solving...",
         statusUploadMissing: "Missing required upload files",
+        statusWorkbookMissing: "Select an Excel workbook, or upload JSON/CSV in the advanced section",
         statusSolved: "Solved",
         statusFailed: "Run failed",
         totalCost: "Total cost",
@@ -873,7 +858,7 @@ DASHBOARD_HTML = r"""<!doctype html>
           if (uploadedPayload.request) {
             $("request").value = uploadedPayload.request;
           }
-          if (uploadedPayload.instance) {
+          if ($("instance") && uploadedPayload.instance) {
             $("instance").value = JSON.stringify(uploadedPayload.instance, null, 2);
           }
           applyConfig(uploadedPayload.config_overrides || configOverrides(), uploadedPayload.prefer_cpsat !== false);
@@ -881,6 +866,10 @@ DASHBOARD_HTML = r"""<!doctype html>
           formData.set("config_overrides_json", JSON.stringify(configOverrides()));
           formData.append("payload_json", payloadFile);
         } else {
+          const anyAdvancedFile = ["fleetsFile", "routesFile", "forecastFile", "milkRunFile", "configFile"].some((id) => $(id).files[0]);
+          if (!anyAdvancedFile) {
+            throw new Error(t("statusWorkbookMissing"));
+          }
           const required = [
             ["fleetsFile", "fleets"],
             ["routesFile", "routes"],
@@ -1059,9 +1048,6 @@ DASHBOARD_HTML = r"""<!doctype html>
       return String(value).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]));
     }
 
-    $("loadDemo").addEventListener("click", loadDemo);
-    $("validateData").addEventListener("click", validateCurrentData);
-    $("run").addEventListener("click", runSchedule);
     $("runUpload").addEventListener("click", runUploadedSchedule);
     $("clearUpload").addEventListener("click", clearUploadedFiles);
     $("ganttFilter").addEventListener("change", () => {
@@ -1074,7 +1060,6 @@ DASHBOARD_HTML = r"""<!doctype html>
       applyLanguage();
     });
     applyLanguage();
-    loadDemo();
   </script>
 </body>
 </html>

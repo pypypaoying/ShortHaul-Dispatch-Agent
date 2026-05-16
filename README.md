@@ -417,6 +417,10 @@ GitHub Actions 会在 `push` 和 `pull_request` 时执行同等检查。
 - [架构说明](docs/architecture.md)
 - [实验协议](docs/experiments.md)
 
+## License
+
+This project is released under the [MIT License](LICENSE).
+
 ## 数据管理
 
 本地数据集、实验输出、W&B 运行目录和环境变量文件不提交到版本库。生产数据或私有数据应通过运行时参数、外部存储或 API payload 提供。

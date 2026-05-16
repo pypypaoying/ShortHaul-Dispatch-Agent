@@ -97,6 +97,10 @@ def create_app():
     def health() -> Dict[str, str]:
         return {"status": "ok"}
 
+    @app.get("/favicon.ico", include_in_schema=False)
+    def favicon() -> Response:
+        return Response(status_code=204)
+
     @app.get("/", response_class=HTMLResponse)
     def dashboard() -> HTMLResponse:
         return HTMLResponse(render_dashboard_html())

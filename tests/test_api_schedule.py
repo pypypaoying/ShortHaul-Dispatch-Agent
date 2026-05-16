@@ -35,6 +35,15 @@ def test_schedule_endpoint_accepts_json_body():
     assert data["solution"]["kpis"]["assigned_task_count"] == data["solution"]["kpis"]["task_count"]
 
 
+def test_favicon_request_does_not_log_404():
+    app = create_app()
+    client = TestClient(app)
+
+    response = client.get("/favicon.ico")
+
+    assert response.status_code == 204
+
+
 def test_schedule_export_returns_selected_zip_files():
     app = create_app()
     client = TestClient(app)
